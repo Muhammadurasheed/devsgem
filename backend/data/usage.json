@@ -1,0 +1,46 @@
+{
+  "user_1762568889190": {
+    "2025-11-08": {
+      "user_id": "user_1762568889190",
+      "date": "2025-11-08",
+      "requests": 2,
+      "deployments": 0,
+      "memory_used_mb": 0,
+      "bandwidth_gb": 2.7939677238464355e-08
+    },
+    "2025-11-13": {
+      "user_id": "user_1762568889190",
+      "date": "2025-11-13",
+      "requests": 5,
+      "deployments": 0,
+      "memory_used_mb": 0,
+      "bandwidth_gb": 8.195638656616211e-08
+    },
+    "2026-01-08": {
+      "user_id": "user_1762568889190",
+      "date": "2026-01-08",
+      "requests": 13,
+      "deployments": 0,
+      "memory_used_mb": 0,
+      "bandwidth_gb": 1.9185245037078857e-07
+    }
+  },
+  "user_1762621179925": {
+    "2025-11-13": {
+      "user_id": "user_1762621179925",
+      "date": "2025-11-13",
+      "requests": 5,
+      "deployments": 0,
+      "memory_used_mb": 0,
+      "bandwidth_gb": 8.195638656616211e-08
+    },
+    "2026-01-08": {
+      "user_id": "user_1762621179925",
+      "date": "2026-01-08",
+      "requests": 2,
+      "deployments": 0,
+      "memory_used_mb": 0,
+      "bandwidth_gb": 2.7939677238464355e-08
+    }
+  }
+}

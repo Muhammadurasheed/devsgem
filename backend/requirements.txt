@@ -1,0 +1,24 @@
+# FastAPI Backend for ServerGem (Production-Grade)
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+websockets==12.0
+upstash-redis==1.5.0
+
+# Google Cloud APIs (Production-Grade with Resource Management)
+google-cloud-aiplatform==1.71.1
+google-cloud-build==3.25.0
+google-cloud-run==0.10.7
+google-cloud-storage==2.18.2
+google-cloud-resource-manager==1.13.1
+google-cloud-artifact-registry==1.12.0
+google-cloud-logging==3.11.2
+google-generativeai==0.8.5
+google-api-python-client==2.100.0
+
+# HTTP Client & Async
+requests==2.32.3
+aiohttp==3.9.1  
+aiofiles==24.1.0
+
+# Environment & Config
+python-dotenv==1.0.1
