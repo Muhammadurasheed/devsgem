@@ -209,6 +209,7 @@ const Deploy = () => {
                 messages={messages}
                 isTyping={isTyping}
                 deploymentUrl={deploymentUrl}
+                activeDeployment={activeDeployment}
               />
 
               {/* Deployment Action Buttons */}

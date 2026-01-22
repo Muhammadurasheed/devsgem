@@ -999,6 +999,81 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                 if not message:
                     continue
                 
+                # ✅ FAANG-LEVEL FIX: Explicitly handle "Skip Env Vars" action
+                # This ensures deterministic deployment triggering without relaying on LLM interpretation
+                if metadata.get('type') == 'env_skip':
+                    print(f"[WebSocket] ⏩ User requested SKIP env vars for session {session_id}")
+                    
+                    # 1. Notify user
+                    await safe_send_json(session_id, {
+                        'type': 'message',
+                        'data': {
+                            'content': "🚀 **Launch sequence initiated!** Skipping environment variables...",
+                            'metadata': {'type': 'system'}
+                        },
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    
+                    # 2. Initialize Deployment ID
+                    deployment_id = f"deploy-{uuid.uuid4().hex[:8]}"
+                    
+                    # 3. Send Global 'deployment_started' event (Wakes up UI Panel)
+                    await safe_send_json(session_id, {
+                        "type": "deployment_started",
+                        "deployment_id": deployment_id,
+                        "message": "[DEPLOY] Launching directly (No Env Vars)...",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+                    # 4. Create Notifier & Callback
+                    progress_notifier = ProgressNotifier(session_id, deployment_id, safe_send_json)
+                    
+                    async def progress_callback_wrapper(data):
+                        try:
+                            if isinstance(data, dict):
+                                message = data.get('message') or data.get('data', {}).get('content', '')
+                                stage = data.get('stage', 'deployment')
+                                progress = data.get('progress', 0)
+                                if message:
+                                    await safe_send_json(session_id, {
+                                        'type': 'deployment_progress', 
+                                        'stage': stage, 
+                                        'status': 'in-progress', 
+                                        'message': message, 
+                                        'progress': progress,
+                                        'metadata': {'type': 'progress_update', 'stage': stage}
+                                    })
+                        except Exception as e:
+                            print(f"[WebSocket] Progress callback error: {e}")
+
+                    # 5. Trigger Direct Deploy
+                    try:
+                        print(f"[WebSocket] ⚡ Triggering _direct_deploy (Skip Mode)")
+                        response = await user_orchestrator._direct_deploy(
+                            progress_notifier=progress_notifier,
+                            progress_callback=progress_callback_wrapper,
+                            ignore_env_check=True,
+                            explicit_env_vars={}  # Empty dict for skip
+                        )
+                        
+                        await safe_send_json(session_id, {
+                            'type': 'message',
+                            'data': response,
+                            'timestamp': datetime.now().isoformat()
+                        })
+                        
+                        await session_store.save_session(session_id, user_orchestrator.get_state())
+                        
+                    except Exception as deploy_error:
+                         print(f"[WebSocket] [ERROR] Skip-deploy failed: {deploy_error}")
+                         await safe_send_json(session_id, {
+                            'type': 'error',
+                            'message': f'Deployment error: {str(deploy_error)}',
+                            'code': 'DEPLOY_ERROR'
+                        })
+                    
+                    continue # Skip LLM processing
+                
                 # ✅ CRITICAL FIX: Update GitHub token from metadata if provided
                 # This is sent from Deploy.tsx when selecting a repo
                 github_token = metadata.get('githubToken')

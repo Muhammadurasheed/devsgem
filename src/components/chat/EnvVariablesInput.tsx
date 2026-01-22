@@ -117,6 +117,9 @@ export function EnvVariablesInput({ onEnvSubmit, onSkip, sendMessageToBackend }:
         {onSkip && (
           <button
             onClick={() => {
+              // ✅ FAANG UX: Show "Deploying" state immediately on skip to prevent UI flash
+              setIsSubmitted(true);
+
               if (sendMessageToBackend) {
                 console.log('[EnvVariablesInput] User clicked SKIP. Sending explicit skip message...');
                 sendMessageToBackend('message', {
@@ -124,7 +127,8 @@ export function EnvVariablesInput({ onEnvSubmit, onSkip, sendMessageToBackend }:
                   metadata: { type: 'env_skip' }
                 });
               }
-              onSkip(); // Keep original callback for UI transition if needed
+              // Don't call onSkip() - keep this component mounted to show the Rocket UI
+              // until the global DeploymentProgress takes over via WebSocket events.
             }}
             className="skip-btn"
           >

@@ -10,13 +10,59 @@ import confetti from 'canvas-confetti';
 import { DeploymentStages } from './DeploymentStages';
 import { AnalysisCard } from './AnalysisCard';
 
+import { DeploymentProgress as IDeploymentProgress } from '@/types/deployment';
+
 interface DeploymentProgressProps {
   messages: ChatMessageType[];
   isTyping: boolean;
   deploymentUrl?: string; // Still passed as prop, but we'll also check metadata
+  activeDeployment: IDeploymentProgress | null; // ✅ FAANG: Global State Source
 }
 
-export const DeploymentProgress = ({ messages, isTyping, deploymentUrl }: DeploymentProgressProps) => {
+// ✅ FAANG-LEVEL: Apple-style Progress Smoothing Hook
+// Simulates organic progress during long operations (Container Build) to prevent "stuck" feeling
+const useSmoothedProgress = (targetProgress: number, stage: string, status: string) => {
+  const [visualProgress, setVisualProgress] = useState(targetProgress);
+
+  useEffect(() => {
+    // Immediate catch-up for completion or huge jumps
+    if (status === 'success' || targetProgress === 100) {
+      setVisualProgress(100);
+      return;
+    }
+
+    // Logic for "Long Running" stages (Container Build, Cloud Deploy)
+    // We simulate slow progress up to a safety cap (e.g., 90%)
+    const isLongStage = ['container_build', 'cloud_deployment'].includes(stage);
+
+    if (isLongStage && status === 'in-progress') {
+      const interval = setInterval(() => {
+        setVisualProgress(prev => {
+          // Calculate dynamic cap based on stage
+          // Build can go high (85%), Deploy can go higher (95%)
+          const cap = stage === 'container_build' ? 85 : 95;
+          const remaining = cap - prev;
+
+          if (remaining <= 0) return prev; // Don't exceed cap
+
+          // Organic increment: Smaller as we get closer to cap
+          const increment = Math.max(0.05, Math.random() * (remaining / 50));
+          return Math.min(prev + increment, cap);
+        });
+      }, 800); // Update every 800ms for "breathing" feel
+
+      return () => clearInterval(interval);
+    } else {
+      // For fast stages, just sync with target (allow framer-motion to handle transition)
+      setVisualProgress(targetProgress);
+    }
+  }, [targetProgress, stage, status]);
+
+  // Always ensure we never show LESS than target (unless resetting)
+  return Math.max(visualProgress, targetProgress);
+};
+
+export const DeploymentProgress = ({ messages, isTyping, deploymentUrl, activeDeployment }: DeploymentProgressProps) => {
   const [showMatrix, setShowMatrix] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -27,11 +73,33 @@ export const DeploymentProgress = ({ messages, isTyping, deploymentUrl }: Deploy
     setTimeout(() => setCopiedUrl(false), 2000);
   };
 
-  // Find deployment progress message (Get LAST one to ensure we have latest state)
+  // ✅ FAANG-LEVEL: Prefer Global State (Real-time Events) over legacy Chat Logs
+  const hasActiveState = !!activeDeployment;
+
+  // Legacy Fallback (for old sessions)
   const progressMessage = [...messages].reverse().find(m => m.metadata?.type === 'deployment_progress' || m.metadata?.type === 'deployment_started');
-  const progress = progressMessage?.metadata?.progress || 0;
-  const stage = progressMessage?.metadata?.stage || 'Initializing';
-  const logs = progressMessage?.metadata?.logs || [];
+
+  // Derive Truth
+  const rawProgress = activeDeployment ? activeDeployment.overallProgress : (progressMessage?.metadata?.progress || 0);
+
+  // Map Stage ID to Label if possible, or use raw ID
+  const rawStage = activeDeployment ? activeDeployment.currentStage : (progressMessage?.metadata?.stage || 'Initializing');
+  const stageDef = DeploymentStages.find(s => s.id === rawStage); // Try to find definition
+  const stage = stageDef ? stageDef.label : rawStage;
+
+  // ✅ APPLY SMOOTHING
+  const progress = useSmoothedProgress(
+    rawProgress,
+    rawStage,
+    activeDeployment?.status || 'deploying'
+  );
+
+  // Derive Logs/Details
+  const currentStageDetails = activeDeployment
+    ? activeDeployment.stages.find(s => s.id === activeDeployment.currentStage)?.details
+    : undefined;
+
+  const logs = currentStageDetails || progressMessage?.metadata?.logs || [];
 
   // Find analysis message - prefer structured metadata
   const analysisMessage = [...messages].reverse().find(m =>
@@ -40,21 +108,24 @@ export const DeploymentProgress = ({ messages, isTyping, deploymentUrl }: Deploy
     m.content.includes('Analysis Service')
   );
 
-  // ✅ FAANG-LEVEL: Robust success detection for confetti trigger
-  // Check multiple indicators to ensure celebration fires
+  // ✅ FAANG-LEVEL: Robust success detection
+  // Check context state FIRST, then legacy messages
+  const contextSuccess = activeDeployment?.status === 'success';
+
   const successMsg = messages.find(m =>
     m.metadata?.type === 'deployment_complete' ||
     m.content.includes('Deployment Successful') ||
     m.content.includes('Deployment Complete') ||
-    m.content.includes('[SUCCESS]') ||  // Common success prefix
-    m.content.includes('🎉') ||  // Celebration emoji
-    m.content.includes('is live') ||  // Common success phrase
-    m.content.includes('.run.app') ||  // Cloud Run URL in content
-    m.metadata?.url ||  // If metadata has URL, it's successful
-    (m as any).deploymentUrl  // Direct URL means success
+    m.content.includes('[SUCCESS]') ||
+    m.content.includes('🎉') ||
+    m.content.includes('is live') ||
+    m.content.includes('.run.app') ||
+    m.metadata?.url ||
+    (m as any).deploymentUrl
   );
-  const isComplete = !!successMsg;
-  const finalUrl = deploymentUrl || (successMsg as any)?.deploymentUrl || successMsg?.metadata?.url;
+
+  const isComplete = contextSuccess || !!successMsg;
+  const finalUrl = activeDeployment?.deploymentUrl || deploymentUrl || (successMsg as any)?.deploymentUrl || successMsg?.metadata?.url;
 
   // ✅ FIXED: Don't flag errors for completed deployments
   const hasError = messages.some(m =>
@@ -128,7 +199,8 @@ export const DeploymentProgress = ({ messages, isTyping, deploymentUrl }: Deploy
         )}
 
         {/* Deployment Progress */}
-        {(progressMessage || isTyping) && !isComplete && !hasError && (
+        {/* Show if we have active deployment OR legacy progress message */}
+        {(activeDeployment || progressMessage || isTyping) && !isComplete && !hasError && (
           <motion.div
             key="deployment-progress"
             initial={{ opacity: 0, scale: 0.95 }}

@@ -533,12 +533,15 @@ class GCloudService:
                 language = (build_config.get('language', 'unknown') if build_config else 'unknown').lower()
                 
                 # Define language-specific files to heal
+                # Define language-specific files to heal
+                # ✅ FIX: Exclude large lockfiles (package-lock.json, go.sum) which exceed Cloud Build API arg limits (10k chars)
+                # We assume these exist in the remote repo. We primarily need to inject our optimized Dockerfile.
                 language_files = {
                     'python': ['Dockerfile', '.dockerignore', 'requirements.txt', 'runtime.txt'],
-                    'nodejs': ['Dockerfile', '.dockerignore', 'package.json', 'package-lock.json'],
-                    'node': ['Dockerfile', '.dockerignore', 'package.json', 'package-lock.json'],
-                    'golang': ['Dockerfile', '.dockerignore', 'go.mod', 'go.sum'],
-                    'go': ['Dockerfile', '.dockerignore', 'go.mod', 'go.sum'],
+                    'nodejs': ['Dockerfile', '.dockerignore', 'package.json'], # lockfile too big for echo injection
+                    'node': ['Dockerfile', '.dockerignore', 'package.json'],
+                    'golang': ['Dockerfile', '.dockerignore', 'go.mod'],
+                    'go': ['Dockerfile', '.dockerignore', 'go.mod'],
                 }
                 
                 # Get files for this language, fallback to just Dockerfile if unknown
