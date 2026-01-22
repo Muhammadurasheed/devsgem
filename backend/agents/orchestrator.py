@@ -18,6 +18,8 @@ from datetime import datetime
 import json
 import uuid
 import os
+import hashlib
+import re
 from dataclasses import dataclass
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -50,7 +52,7 @@ class OrchestratorAgent:
         gemini_api_key: Optional[str] = None
     ):
         self.gemini_api_key = gemini_api_key
-        # ✅ ALWAYS prefer Vertex AI if GCP project is configured
+        # [SUCCESS] ALWAYS prefer Vertex AI if GCP project is configured
         # Store Gemini API key for automatic fallback on quota exhaustion
         self.use_vertex_ai = bool(gcloud_project)
         self.gcloud_project = gcloud_project
@@ -74,7 +76,7 @@ class OrchestratorAgent:
         system_instruction = self._get_system_instruction()
         
         # Initialize AI model (Vertex AI or Gemini API)
-        # ✅ GEMINI 3 HACKATHON FIX: Use gemini-2.5-flash (Gemini 3 family)
+        # [SUCCESS] GEMINI 3 HACKATHON FIX: Use gemini-2.5-flash (Gemini 3 family)
         # Per hackathon requirements: "Build with the Gemini 3 API"
         # gemini-2.5-flash is the Gemini 3 Flash model
         if self.use_vertex_ai:
@@ -85,7 +87,7 @@ class OrchestratorAgent:
             )
             print("[Orchestrator] Using Gemini 2.0 Flash via Vertex AI")
         else:
-            # ✅ Gemini 3 via direct API
+            # [SUCCESS] Gemini 3 via direct API
             import google.generativeai as genai
             self.model = genai.GenerativeModel(
                 'gemini-2.0-flash-001',  # Flagship Gemini 2.0 model
@@ -95,15 +97,15 @@ class OrchestratorAgent:
             print("[Orchestrator] Using Gemini 2.0 Flash via API")
         
         self.conversation_history: List[Dict] = []
-        self.ui_history: List[Dict] = [] # ✅ Rehydration history
+        self.ui_history: List[Dict] = [] # [SUCCESS] Rehydration history
         self.project_context: Dict[str, Any] = {}
         self.chat_session = None
         
-        # ✅ CRITICAL FIX: Add instance variables for progress messaging
+        # [SUCCESS] CRITICAL FIX: Add instance variables for progress messaging
         self.safe_send: Optional[Callable] = None
         self.session_id: Optional[str] = None
-        self.save_callback: Optional[Callable] = None  # ✅ Function to trigger Redis save
-        self.active_deployment: Optional[Dict[str, Any]] = None  # ✅ Full structured state
+        self.save_callback: Optional[Callable] = None  # [SUCCESS] Function to trigger Redis save
+        self.active_deployment: Optional[Dict[str, Any]] = None  # [SUCCESS] Full structured state
         
         # Initialize real services - with proper error handling
         try:
@@ -115,8 +117,8 @@ class OrchestratorAgent:
             from services.security import security
             from services.optimization import optimization
             from services.deployment_progress import create_progress_tracker
-            from agents.docker_expert import DockerExpertAgent # ✅ Import Agent
-            from agents.code_analyzer import CodeAnalyzerAgent # ✅ Import CodeAnalyzer
+            from agents.docker_expert import DockerExpertAgent # [SUCCESS] Import Agent
+            from agents.code_analyzer import CodeAnalyzerAgent # [SUCCESS] Import CodeAnalyzer
             from services.domain_service import DomainService
             from services.preferences_service import PreferencesService
             
@@ -124,12 +126,21 @@ class OrchestratorAgent:
             self.preferences_service = PreferencesService()
             
             # Use DevGem's GCP project (not user's)
-            self.gcloud_service = GCloudService(
-                gcloud_project or 'servergem-platform'
-            ) if gcloud_project else None
+            # [SUCCESS] FAANG FIX: Handle both project ID string AND pre-instantiated GCloudService object
+            if gcloud_project:
+                # Use duck-typing to check if it's already a service instance
+                if hasattr(gcloud_project, 'access_secret'):
+                    print(f"[Orchestrator] GCloudService object injected directly")
+                    self.gcloud_service = gcloud_project
+                else:
+                    self.gcloud_service = GCloudService(
+                        str(gcloud_project) or 'servergem-platform'
+                    )
+            else:
+                self.gcloud_service = None
             self.docker_service = DockerService()
-            self.docker_expert = DockerExpertAgent(gcloud_project or 'servergem-platform') # ✅ Init Agent
-            self.code_analyzer = CodeAnalyzerAgent(gcloud_project, location, gemini_api_key) # ✅ Init CodeAnalyzer
+            self.docker_expert = DockerExpertAgent(gcloud_project or 'servergem-platform') # [SUCCESS] Init Agent
+            self.code_analyzer = CodeAnalyzerAgent(gcloud_project, location, gemini_api_key) # [SUCCESS] Init CodeAnalyzer
             self.analysis_service = AnalysisService(gcloud_project, location, gemini_api_key)
             self.domain_service = DomainService(gcloud_project, location)
             
@@ -178,7 +189,7 @@ class OrchestratorAgent:
             function_declarations=[
                 FunctionDeclaration(
                     name='clone_and_analyze_repo',
-                    description='Clone and analyze a GitHub repository. ⚠️ CRITICAL: Only call this when "Project Path:" is NOT in context. If "Project Path:" exists in context, repository is ALREADY cloned - call deploy_to_cloudrun instead! NEVER clone the same repo twice.',
+                    description='Clone and analyze a GitHub repository. [WARNING] CRITICAL: Only call this when "Project Path:" is NOT in context. If "Project Path:" exists in context, repository is ALREADY cloned - call deploy_to_cloudrun instead! NEVER clone the same repo twice.',
                     parameters={
                         'type': 'object',
                         'properties': {
@@ -210,7 +221,7 @@ class OrchestratorAgent:
                             },
                             'env_vars': {
                                 'type': 'object',
-                                'description': 'Leave empty - environment variables are automatically loaded from context'
+                                'description': 'Optional environment variables to inject (e.g. {"GEMINI_API_KEY": "..." }). If available in context, they will be merged.'
                             }
                         },
                         'required': ['project_path', 'service_name']
@@ -267,7 +278,7 @@ class OrchestratorAgent:
                 delay = base_delay * (2 ** attempt)  # Exponential backoff
                 print(f"[Orchestrator] Network error (attempt {attempt + 1}/{max_retries}): {str(e)[:100]}")
                 print(f"[Orchestrator] Retrying in {delay}s...")
-                await self._send_progress_message(f"🔄 Network issue detected, retrying... (attempt {attempt + 1}/{max_retries})")
+                await self._send_progress_message(f"[SYNC] Network issue detected, retrying... (attempt {attempt + 1}/{max_retries})")
                 await asyncio.sleep(delay)
         
         raise Exception("Max retries exceeded for network operation")
@@ -296,7 +307,7 @@ class OrchestratorAgent:
         )
         
         if not can_proceed:
-            await self._send_progress_message("⚠️ High API load detected, request queued...")
+            await self._send_progress_message("[WARNING] High API load detected, request queued...")
         
         # Define the regions to try
         regions_to_try = [best_region] if best_region else []
@@ -307,7 +318,7 @@ class OrchestratorAgent:
         
         for region in regions_to_try:
             try:
-                # ✅ FIX: Save history before switching regions
+                # [SUCCESS] FIX: Save history before switching regions
                 saved_history = []
                 if self.chat_session and hasattr(self.chat_session, 'history'):
                     saved_history = list(self.chat_session.history)
@@ -353,8 +364,8 @@ class OrchestratorAgent:
                 
                 if is_quota_error:
                     rate_limiter.record_failure(region, str(e))
-                    print(f"[Orchestrator] ⚠️ Region {region} quota exhausted, trying next...")
-                    await self._send_progress_message(f"⚠️ Region {region} busy, switching to backup...")
+                    print(f"[Orchestrator] [WARNING] Region {region} quota exhausted, trying next...")
+                    await self._send_progress_message(f"[WARNING] Region {region} busy, switching to backup...")
                     await asyncio.sleep(0)  # Flush message
                     continue  # Try next region
                 else:
@@ -363,8 +374,8 @@ class OrchestratorAgent:
         
         # All Vertex AI regions exhausted - try Gemini API fallback
         if self.gemini_api_key:
-            print(f"[Orchestrator] 🔄 All Vertex AI regions exhausted, switching to Gemini API")
-            await self._send_progress_message("⚠️ All regions busy. Activating backup AI service...")
+            print(f"[Orchestrator] [SYNC] All Vertex AI regions exhausted, switching to Gemini API")
+            await self._send_progress_message("[WARNING] All regions busy. Activating backup AI service...")
             await asyncio.sleep(0)
             
             try:
@@ -384,8 +395,8 @@ class OrchestratorAgent:
                 self.model = backup_model
                 self.chat_session = backup_chat
                 
-                print(f"[Orchestrator] ✅ Successfully switched to Gemini API")
-                await self._send_progress_message("✅ Backup AI service activated - continuing...")
+                print(f"[Orchestrator] [SUCCESS] Successfully switched to Gemini API")
+                await self._send_progress_message("[SUCCESS] Backup AI service activated - continuing...")
                 await asyncio.sleep(0)
                 return response
                 
@@ -403,12 +414,22 @@ class OrchestratorAgent:
     async def _direct_deploy(
         self, 
         progress_notifier: Optional[ProgressNotifier] = None,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        ignore_env_check: bool = False,  # [SUCCESS] NEW: Allow skipping env var prompt
+        explicit_env_vars: Optional[Dict[str, Any]] = None  # [SUCCESS] FAANG: Deterministic Override
     ) -> Dict[str, Any]:
         """
         Logic for direct deployment when intent is confirmed.
         """
         print(f"[Orchestrator] Intent detected: DIRECT DEPLOY (Bypassing LLM loop)")
+        print(f"[Orchestrator] _direct_deploy running on instance ID: {id(self)} [VERSION: LIGHTSPEED-10]")
+        
+        # [SUCCESS] PHASE 10 FIX: Inject explicit_env_vars into context IMMEDIATELY
+        # This ensures all subsequent env_vars checks pass correctly
+        if explicit_env_vars:
+            self.project_context['env_vars'] = explicit_env_vars
+            print(f"[Orchestrator] [LIGHTSPEED] Injected {len(explicit_env_vars)} explicit env vars into context UPFRONT")
+        
         await self._send_thought_message("Direct deployment intent confirmed. Short-circuiting LLM logic...")
         await self._send_progress_message("Initiating ultra-fast Cloud Run sequence...")
         
@@ -427,14 +448,16 @@ class OrchestratorAgent:
             service_name = base_name
             
         # Force function call results
-        class MockCall:
-            def __init__(self, name, args):
+        # [SUCCESS] DirectFunctionCall: Encapsulates function call data for orchestrated execution
+        class DirectFunctionCall:
+            """Structurally identical to Gemini function calls for unified handler routing."""
+            def __init__(self, name: str, args: dict):
                 self.name = name
                 self.args = args
 
         project_path = self.project_context.get('project_path')
         
-        # ✅ RESUMPTION INTELLIGENCE: Skip redundant analysis if state is fresh
+        # [SUCCESS] RESUMPTION INTELLIGENCE: Skip redundant analysis if state is fresh
         cached_analysis = self.project_context.get('analysis')
         cached_url = self.project_context.get('repo_url')
         is_resume = (repo_url and cached_analysis and cached_url == repo_url and 
@@ -443,7 +466,7 @@ class OrchestratorAgent:
         if is_resume:
             print(f"[Orchestrator] Correctly identified resume state for: {repo_url}")
             
-            # ✅ HEALING DEPLOY: Force a "Fast Sync" to verify ground truth even in resume
+            # [SUCCESS] HEALING DEPLOY: Force a "Fast Sync" to verify ground truth even in resume
             # This handles cases where a project was previously misidentified as Node.js
             # but is actually Python/Go.
             try:
@@ -453,8 +476,11 @@ class OrchestratorAgent:
                 cached_lang = cached_analysis.get('language', 'unknown')
                 actual_lang = fast_sync.get('language', 'unknown')
                 
-                if actual_lang != cached_lang and actual_lang != 'unknown':
-                    print(f"[Orchestrator] ⚠️ LANGUAGE MISMATCH DETECTED!")
+                # [SUCCESS] FIX: loose equivalence for JS/TS stack
+                is_js_stack = {cached_lang, actual_lang}.issubset({'node', 'typescript', 'javascript', 'nodejs', 'vite', 'react'})
+                
+                if actual_lang != cached_lang and actual_lang != 'unknown' and not is_js_stack:
+                    print(f"[Orchestrator] [WARNING] LANGUAGE MISMATCH DETECTED!")
                     print(f"  - Cached: {cached_lang}")
                     print(f"  - Actual (Ground Truth): {actual_lang}")
                     print(f"  - Action: Wiping stale analysis and forcing HEALING RE-ANALYSIS.")
@@ -462,44 +488,56 @@ class OrchestratorAgent:
                     # Drop the broken cache to force refresh
                     self.project_context.pop('analysis', None)
                 else:
-                    print(f"[Orchestrator] ✅ Fast Sync confirmed language: {actual_lang}")
+                    print(f"[Orchestrator] [SUCCESS] Fast Sync confirmed language: {actual_lang} (Compatible with {cached_lang})")
             except Exception as e:
                 print(f"[Orchestrator] [WARNING] Fast Sync failed: {e}")
                 # Continue with resume if sync fails (best effort)
 
-        # Re-evaluate is_resume after potential healing
         if is_resume:
             await self._send_thought_message("Retrieving existing project intelligence from persistent memory...")
             
-            # ✅ STAGE REHYDRATION: Re-emit success for completed stages to sync UI
-            if progress_notifier:
-                await progress_notifier.complete_stage(
-                    DeploymentStages.REPO_CLONE,
-                    "Repository already available in context"
-                )
-                await progress_notifier.complete_stage(
-                    DeploymentStages.CODE_ANALYSIS,
-                    "Analysis retrieved from context"
-                )
-                await progress_notifier.complete_stage(
-                    DeploymentStages.DOCKERFILE_GEN,
-                    "Dockerfile already generated"
-                )
-
             analysis_result = {
                 'type': 'analysis_report',
                 'data': cached_analysis,
                 'content': self.project_context.get('last_analysis_formatted', "Resuming previous deployment state...")
             }
+            
+            # [SUCCESS] CRITICAL FIX: Even in resume, verify env_vars exist before proceeding
+            # Session reconnection can cause env_vars loss - must re-request if empty
+            existing_vars = self.project_context.get('env_vars')
+            if not existing_vars and not ignore_env_check:
+                print(f"[Orchestrator] Resume path: env_vars lost (session reconnected?). Re-requesting...")
+                return {
+                    'type': 'message',
+                    'content': "Your session was reconnected. Please re-configure your environment variables to continue.",
+                    'metadata': {
+                        'type': 'analysis_with_env_request',
+                        'request_env_vars': True,
+                        'default_name': service_name
+                    },
+                    'actions': [
+                        {
+                            'id': 'deploy-direct-after-env',
+                            'label': '[ROCKET] QUICK DEPLOY',
+                            'type': 'button',
+                            'variant': 'primary',
+                            'action': 'deploy_to_cloudrun',
+                            'intent': 'deploy'
+                        }
+                    ],
+                    'timestamp': datetime.now().isoformat()
+                }
         elif repo_url:
             print(f"[Orchestrator] Ensuring project analysis for: {repo_url}...")
             
-            # Call the robust clone & analyze handler
+            # [SUCCESS] FAANG-LEVEL UX: Pass skip_prompt=True for direct deployments
+            # This prevents the report from asking "Ready to deploy?" when we are ALREADY deploying.
             analysis_result = await self._handle_clone_and_analyze(
                 repo_url,
                 branch=self.project_context.get('branch', 'main'),
                 progress_notifier=progress_notifier,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                skip_deploy_prompt=True # [SUCCESS] NEW: Suppress silly question
             )
 
             # Check for critical errors
@@ -511,7 +549,7 @@ class OrchestratorAgent:
                  self.project_context['project_path'] = analysis_result['data']['project_path']
                  project_path = self.project_context['project_path']
 
-            # ✅ SEQUENTIAL DELIVERY: Send the Analysis Report first
+            # [SUCCESS] SEQUENTIAL DELIVERY: Send the Analysis Report first
             if self.safe_send and self.session_id:
                 await self._send_thought_message("Finalizing project intelligence and structuring deployment architecture...")
                 
@@ -523,12 +561,15 @@ class OrchestratorAgent:
                 })
                 await asyncio.sleep(1.2) # Premium padding for sequential perception
 
-            # ✅ CRITICAL FLOW CONTROL:
+            # [SUCCESS] CRITICAL FLOW CONTROL:
             # If we don't have env vars yet, we ask for them.
             # Otherwise we proceed.
+            # [SUCCESS] SKIP TRAP: If ignore_env_check is True (user said "Skip"), we bypass this!
             existing_vars = self.project_context.get('env_vars')
             
-            if not existing_vars:
+            print(f"[Orchestrator] _direct_deploy check: vars={len(existing_vars) if existing_vars else 0}, ignore_check={ignore_env_check}")
+
+            if not existing_vars and not ignore_env_check:
                 print(f"[Orchestrator] Pausing direct deployment to request environment variables.")
                 return {
                     'type': 'message',
@@ -541,7 +582,7 @@ class OrchestratorAgent:
                     'actions': [
                         {
                             'id': 'deploy-direct-after-env',
-                            'label': '🚀 QUICK DEPLOY',
+                            'label': '[ROCKET] QUICK DEPLOY',
                             'type': 'button',
                             'variant': 'primary',
                             'action': 'deploy_to_cloudrun',
@@ -561,19 +602,104 @@ class OrchestratorAgent:
                     'timestamp': datetime.now().isoformat()
                 }
 
-        mock_call = MockCall('deploy_to_cloudrun', {
+        # [SUCCESS] CRITICAL FIX: Include env_vars from project_context to ensure Cloud Run receives them
+        # Convert from {key: {value, isSecret}} to {key: value} format for Cloud Run
+        
+        # FAANG-LEVEL PRIORITY: Explicit > Context > File
+        deployment_env_vars = {}
+        
+        if explicit_env_vars:
+             print(f"[Orchestrator] [ROCKET] Using {len(explicit_env_vars)} EXPLICIT environment variables passed from caller.")
+             print(f"[Orchestrator] 🔍 Explicit Keys: {list(explicit_env_vars.keys())}")
+             deployment_env_vars = explicit_env_vars
+             # Update context for consistency
+             self.project_context['env_vars'] = explicit_env_vars
+        else:
+            raw_env_vars = self.project_context.get('env_vars', {})
+            
+            # Check if nested format (from app.py) and convert
+            if raw_env_vars:
+                first_value = next(iter(raw_env_vars.values()), None)
+                if isinstance(first_value, dict) and 'value' in first_value:
+                    # Nested format: {key: {'value': '...', 'isSecret': bool}} -> {key: value}
+                    deployment_env_vars = {
+                        key: val.get('value', '') 
+                        for key, val in raw_env_vars.items()
+                    }
+                    print(f"[Orchestrator] Converted {len(deployment_env_vars)} env vars from nested to flat format")
+                else:
+                    # Already flat format
+                    deployment_env_vars = raw_env_vars
+            else:
+                # [SUCCESS] FAANG-LEVEL FIX: Race Condition Protection
+                # If env vars are empty, wait briefly and check file/context again
+                # This protects against the frontend triggering deploy before file write completes
+                deployment_env_vars = {}
+                print(f"[Orchestrator] [WARNING] DirectDeploy: Env vars initially empty. Checking fallback/retry...")
+                
+                p_path = self.project_context.get('project_path')
+                if p_path:
+                    env_file_path = os.path.join(p_path, '.devgem_env.json')
+                    
+                    # Active Retry Loop (2 seconds max)
+                    for i in range(4):
+                        if os.path.exists(env_file_path):
+                             try:
+                                with open(env_file_path, 'r') as f:
+                                    saved_vars = json.load(f)
+                                if saved_vars:
+                                    print(f"[Orchestrator] ♻️ DirectDeploy: Recovered {len(saved_vars)} env vars from file on retry {i+1}")
+                                    deployment_env_vars = {
+                                        key: val.get('value', '') if isinstance(val, dict) else val
+                                        for key, val in saved_vars.items()
+                                    }
+                                    # Heal the context
+                                    self.project_context['env_vars'] = saved_vars
+                                    break
+                             except Exception as e:
+                                 print(f"[Orchestrator] Retry read failed: {e}")
+                        
+                        print(f"[Orchestrator] Waiting for env file sync (attempt {i+1})...")
+                        await asyncio.sleep(0.5)
+        
+        # --------------------------------------------------------------------------------
+        # [SUCCESS] ROBUSTNESS FIX: Fallback to persistent file for DirectFunctionCall too
+        # --------------------------------------------------------------------------------
+        if not deployment_env_vars:
+            try:
+                # Need project_path here. Either arg or context.
+                p_path = call.get('project_path') or self.project_context.get('project_path')
+                if p_path:
+                    env_file_path = os.path.join(p_path, '.devgem_env.json')
+                    if os.path.exists(env_file_path):
+                        print(f"[Orchestrator] ♻️ DirectDeploy: Restoring env vars from file: {env_file_path}")
+                        with open(env_file_path, 'r') as f:
+                            saved_vars = json.load(f)
+                        deployment_env_vars = {
+                            key: val.get('value', '') if isinstance(val, dict) else val
+                            for key, val in saved_vars.items()
+                        }
+                        # Update context so subsequent calls have it
+                        self.project_context['env_vars'] = saved_vars
+            except Exception as e:
+                print(f"[Orchestrator] Warning: Failed to restore env vars in DirectDeploy: {e}")
+                
+        print(f"[Orchestrator] DirectFunctionCall with {len(deployment_env_vars)} env vars for Cloud Run: {list(deployment_env_vars.keys())}")
+        
+        deploy_call = DirectFunctionCall('deploy_to_cloudrun', {
             'project_path': project_path, 
-            'service_name': service_name
+            'service_name': service_name,
+            'env_vars': deployment_env_vars  # [SUCCESS] Now properly formatted!
         })
         
         # Await the handler WITH PROGRESS CALLBACKS
         deploy_result = await self._handle_function_call(
-            mock_call,
+            deploy_call,
             progress_notifier=progress_notifier,
             progress_callback=progress_callback
         )
         
-        # ✅ CRITICAL: Format into a natural response, don't just return the dict data
+        # [SUCCESS] CRITICAL: Format into a natural response, don't just return the dict data
         if deploy_result.get('type') == 'error':
             return deploy_result
             
@@ -634,7 +760,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         """
         Main entry point with FIXED progress messaging
         
-        ✅ CRITICAL FIX: Store safe_send/session_id BEFORE any async operations
+        [SUCCESS] CRITICAL FIX: Store safe_send/session_id BEFORE any async operations
         Now ALL methods can send progress messages!
         """
         
@@ -659,7 +785,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         # [LOG] Start processing
         await self._send_thought_message("Analyzing request intent and project context...")
         
-        # ✅ STRATEGIC UPDATE: Always scan for GitHub URLs first and store them
+        # [SUCCESS] STRATEGIC UPDATE: Always scan for GitHub URLs first and store them
         # This fixes the "help deploy [URL]" scenario where URL isn't in context yet
         import re
         github_regex = r'(https?://github\.com/[a-zA-Z0-9-_./]+)'
@@ -681,22 +807,46 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         deploy_keywords = [
             'deploy', 'yes', 'go', 'start', 'proceed', 'ok', 'okay', 'do it', 'run', 'push',
             'yeah', 'yep', 'sure', 'fine', 'proceed now', 'go ahead',
-            'redeploy', 'retry', 'try again', 'fix', 'fix it'
+            'redeploy', 'retry', 'try again', 'fix', 'fix it', 'skip'
         ]
+        
+        # STOP AUTO-RETRY LOOP: Negative keywords that indicate this might be an error report fed back
+        failure_keywords = ['fail', 'error', 'exception', '400', '500', 'timeout']
+        
         user_msg_clean = user_message.lower().strip().rstrip('!').rstrip('.')
         
-        # FIXED: Use looser matching to catch "help me deploy", "pls deploy", etc.
+        # Check for failure keywords first
+        is_failure_report = any(fk in user_msg_clean for fk in failure_keywords)
+        
+        # FIXED: Use looser matching to catch "help me deploy", "pls deploy", "skip" etc.
         # BUT only if we have a path OR we just found a URL (to trigger auto-clone in direct_deploy)
-        if any(kw in user_msg_clean for kw in deploy_keywords):
+        # AND NOT if it looks like a failure report (prevents infinite retry loops)
+        if any(kw in user_msg_clean for kw in deploy_keywords) and not is_failure_report:
              # If we have a path, OR if we have a repo_url (which we might have just extracted)
              if self.project_context.get('project_path') or self.project_context.get('repo_url'):
-                print(f"[Orchestrator] Keyword detected - triggering direct deploy (with auto-clone possibility)")
+                # [SUCCESS] SKIP LOGIC: If user says 'skip' OR sends specific metadata, force deployment
+                # This covers both the button click (with metadata) and manually typing "skip"
+                is_skip = 'skip' in user_msg_clean
+                
+                # Check for metadata in message object if passed (though process_message signature takes str)
+                # But we handle JSON payloads below... wait, the JSON payload handler handles service_name_provided
+                # Let's check if the user_message IS a JSON with type 'env_skip'
+                try:
+                    if user_message.strip().startswith('{'):
+                         payload = json.loads(user_message)
+                         if payload.get('metadata', {}).get('type') == 'env_skip':
+                             is_skip = True
+                             print("[Orchestrator] Detected explicit SKIP event from UI payload")
+                except:
+                    pass
+                
                 deploy_result = await self._direct_deploy(
                     progress_notifier=progress_notifier,
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
+                    ignore_env_check=is_skip # [SUCCESS] Pass flag
                 )
                 
-                # ✅ PERISTENCE FIX: Record Direct Deploy result
+                # [SUCCESS] PERISTENCE FIX: Record Direct Deploy result
                 self._add_to_ui_history(
                     role="assistant",
                     content=deploy_result.get('content', ''),
@@ -732,7 +882,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                             progress_callback=progress_callback
                         )
                         
-                        # ✅ PERISTENCE FIX: Record Direct Deploy result
+                        # [SUCCESS] PERISTENCE FIX: Record Direct Deploy result
                         self._add_to_ui_history(
                             role="assistant",
                             content=deploy_result.get('content', ''),
@@ -747,10 +897,15 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         await self._send_thought_message("Consulting Gemini for strategic reasoning...")
     
         # Initialize chat session if needed
+        # [SUCCESS] CRITICAL FIX: Disable response_validation to handle deployment error responses
+        # Gemini's safety filters can block error messages (e.g., "Container failed to start")
         if not self.chat_session:
-            self.chat_session = self.model.start_chat(history=self.conversation_history)
+            self.chat_session = self.model.start_chat(
+                history=self.conversation_history,
+                response_validation=False  # Allow blocked responses for error handling
+            )
         
-        # ✅ OPTIMIZATION: Smart context injection
+        # [SUCCESS] OPTIMIZATION: Smart context injection
         context_prefix = self._build_context_prefix()
         enhanced_message = f"{context_prefix}\n\nUser: {user_message}" if context_prefix else user_message
 
@@ -772,19 +927,32 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                             )
                             
                             # Send function result back to Gemini - with retry logic
-                            final_response = await self._retry_with_backoff(
-                                lambda: self.chat_session.send_message(
-                                    Part.from_function_response(
-                                        name=part.function_call.name,
-                                        response=function_result
-                                    )
-                                ),
-                                max_retries=3,
-                                base_delay=2.0
-                            )
+                            # [SUCCESS] CRITICAL FIX: Wrap in try-except for ResponseValidationError
+                            final_response = None
+                            response_text = None
                             
-                            # Extract text from final response
-                            response_text = self._extract_text_from_response(final_response)
+                            try:
+                                final_response = await self._retry_with_backoff(
+                                    lambda: self.chat_session.send_message(
+                                        Part.from_function_response(
+                                            name=part.function_call.name,
+                                            response=function_result
+                                        )
+                                    ),
+                                    max_retries=3,
+                                    base_delay=2.0
+                                )
+                                # Extract text from final response
+                                response_text = self._extract_text_from_response(final_response)
+                            except Exception as validation_error:
+                                # [SUCCESS] Handle ResponseValidationError and other blocked responses gracefully
+                                error_str = str(validation_error).lower()
+                                if 'blocked' in error_str or 'validation' in error_str or 'response was blocked' in error_str:
+                                    print(f"[Orchestrator] [WARNING] Gemini blocked response, using function result directly")
+                                    response_text = None  # Will use function_result.content directly
+                                else:
+                                    print(f"[Orchestrator] Error sending function response: {validation_error}")
+                                    response_text = None
                             
                             # Standardized result
                             result = {
@@ -798,7 +966,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                                 'timestamp': datetime.now().isoformat()
                             }
                             
-                            # ✅ Record Assistant Response to UI History
+                            # [SUCCESS] Record Assistant Response to UI History
                             self._add_to_ui_history(
                                 role="assistant",
                                 content=result['content'],
@@ -818,7 +986,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 'timestamp': datetime.now().isoformat()
             }
             
-            # ✅ Record Assistant Response to UI History
+            # [SUCCESS] Record Assistant Response to UI History
             self._add_to_ui_history(
                 role="assistant",
                 content=result['content'],
@@ -857,7 +1025,8 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         repo_url: str, 
         branch: str = 'main', 
         progress_notifier: Optional[ProgressNotifier] = None,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        skip_deploy_prompt: bool = False # [SUCCESS] NEW: Suppress confirmation question
     ) -> Dict[str, Any]:
         """
         Clone GitHub repo and analyze it - FIXED with real-time progress
@@ -866,16 +1035,20 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         try:
             project_path = None
             # FIX: Check if repo already exists in context to prevent "Duplicate Clone"
-            # ✅ DEFENSE IN DEPTH: Verify it's actually the SAME repo
+            # [SUCCESS] DEFENSE IN DEPTH: Verify it's actually the SAME repo
             cached_path = self.project_context.get('project_path')
             cached_url = self.project_context.get('repo_url')
             
             if cached_path and os.path.exists(cached_path):
                 # Check for context mismatch (Stale session leakage protection)
-                if cached_url and cached_url.strip().lower() != repo_url.strip().lower():
-                    print(f"[Orchestrator] ⚠️ Context Mismatch Detected!")
-                    print(f"  - Requested: {repo_url}")
-                    print(f"  - Cached: {cached_url}")
+                # [SUCCESS] DEFENSE IN DEPTH: Normalize URLs to prevent false positives (trailing slash, casing, .git)
+                norm_requested = self._normalize_repo_url(repo_url)
+                norm_cached = self._normalize_repo_url(cached_url)
+                
+                if norm_cached != norm_requested:
+                    print(f"[Orchestrator] [WARNING] Context Mismatch Detected (Repository Swap)!")
+                    print(f"  - Requested: {norm_requested}")
+                    print(f"  - Cached: {norm_cached}")
                     print(f"  - Action: Wiping stale context and forcing fresh clone.")
                     
                     # Wipe context but keep critical auth/settings if needed
@@ -891,7 +1064,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     if progress_notifier:
                         await progress_notifier.complete_stage(
                             DeploymentStages.REPO_CLONE,
-                            "✅ Using cached repository"
+                            "[SUCCESS] Using cached repository"
                         )
                     project_path = cached_path
             
@@ -903,7 +1076,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                         "📦 Cloning repository from GitHub..."
                     )
                 
-                # ✅ PHASE 2: Real-time progress callback for clone
+                # [SUCCESS] PHASE 2: Real-time progress callback for clone
                 async def clone_progress(message: str):
                     """Send real-time clone progress updates"""
                     try:
@@ -914,12 +1087,12 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                                 message
                             )
                         await self._send_progress_message(message)
-                        await asyncio.sleep(0)  # ✅ Force event loop flush
+                        await asyncio.sleep(0)  # [SUCCESS] Force event loop flush
                     except Exception as e:
                         print(f"[Orchestrator] Clone progress error: {e}")
                 
                 await self._send_progress_message("📦 Cloning repository from GitHub...")
-                await asyncio.sleep(0)  # ✅ Force immediate delivery
+                await asyncio.sleep(0)  # [SUCCESS] Force immediate delivery
                 
                 # SAFEGUARD: Ensure branch is never None (manifested as NoneType error in subprocess)
                 if not branch:
@@ -928,7 +1101,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 clone_result = await self.github_service.clone_repository(
                     repo_url, 
                     branch,
-                    progress_callback=clone_progress  # ✅ PHASE 2: Pass callback
+                    progress_callback=clone_progress  # [SUCCESS] PHASE 2: Pass callback
                 )
                 
                 if not clone_result.get('success'):
@@ -964,7 +1137,12 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     )
                 
                 await self._send_progress_message(f"[SUCCESS] Repository cloned: {clone_result['repo_name']} ({clone_result['files_count']} files)")
-                await asyncio.sleep(0)  # ✅ Force immediate delivery
+                await asyncio.sleep(0)  # [SUCCESS] Force immediate delivery
+
+            # [SUCCESS] PHASE 14: Surgical Requirement Sanitization (Cloud Run Compat)
+            # Ensure we use headless packages to avoid libGL issues (The "FAANG" Approach)
+            if project_path:
+                 self._sanitize_requirements(project_path)
 
             
             # Step 2: Analyze project with FIXED progress callback
@@ -975,9 +1153,9 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 )
             
             await self._send_progress_message("🔍 Analyzing project structure and dependencies...")
-            await asyncio.sleep(0)  # ✅ Force immediate delivery
+            await asyncio.sleep(0)  # [SUCCESS] Force immediate delivery
             
-            # ✅ FIX 4: Robust progress callback with error handling
+            # [SUCCESS] FIX 4: Robust progress callback with error handling
             async def analysis_progress(message: str):
                 """Send progress updates during analysis with fallbacks"""
                 try:
@@ -991,18 +1169,18 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     
                     # Always try direct WebSocket send as backup
                     await self._send_progress_message(message)
-                    await asyncio.sleep(0)  # ✅ CRITICAL: Force event loop flush
+                    await asyncio.sleep(0)  # [SUCCESS] CRITICAL: Force event loop flush
                     
                 except Exception as e:
                     print(f"[Orchestrator] Progress callback error: {e}")
                     # Don't fail the analysis if progress update fails
             
             try:
-                # ✅ PHASE 1.1: Pass progress_notifier to analysis service
+                # [SUCCESS] PHASE 1.1: Pass progress_notifier to analysis service
                 analysis_result = await self.analysis_service.analyze_and_generate(
                     project_path,
                     progress_callback=analysis_progress,
-                    progress_notifier=progress_notifier  # ✅ NEW: Pass notifier through
+                    progress_notifier=progress_notifier  # [SUCCESS] NEW: Pass notifier through
                 )
             except Exception as e:
                 error_msg = str(e)
@@ -1048,10 +1226,10 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     }
                 )
             
-            await self._send_progress_message(f"✅ Analysis complete: {analysis_data['framework']} detected")
-            await asyncio.sleep(0)  # ✅ Force immediate delivery
+            await self._send_progress_message(f"[SUCCESS] Analysis complete: {analysis_data['framework']} detected")
+            await asyncio.sleep(0)  # [SUCCESS] Force immediate delivery
 
-            # ✅ FAANG-LEVEL: Generate service_name from repo_url for UI display
+            # [SUCCESS] FAANG-LEVEL: Generate service_name from repo_url for UI display
             # Integrates with user preferences for auto-naming vs interactive mode
             service_name = 'servergem-app'  # Default fallback
             if repo_url:
@@ -1064,7 +1242,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             # Store suggested name in context for later use
             self.project_context['suggested_service_name'] = service_name
             
-            # ✅ SURGICAL FIX: Removed duplicate .env prompts
+            # [SUCCESS] SURGICAL FIX: Removed duplicate .env prompts
             # The .env screen will be shown ONCE in the final analysis response
             # This ensures proper message ordering: Analysis Result -> .env Screen -> Deploy Button
             
@@ -1076,9 +1254,9 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 )
             
             await self._send_progress_message("🐳 Generating optimized Dockerfile...")
-            await asyncio.sleep(0)  # ✅ Force immediate delivery
+            await asyncio.sleep(0)  # [SUCCESS] Force immediate delivery
             
-            # ✅ PHASE 2: Real-time progress for Dockerfile save
+            # [SUCCESS] PHASE 2: Real-time progress for Dockerfile save
             async def dockerfile_progress(message: str):
                 """Send real-time Dockerfile save updates"""
                 try:
@@ -1089,28 +1267,28 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                             message
                         )
                     await self._send_progress_message(message)
-                    await asyncio.sleep(0)  # ✅ Force event loop flush
+                    await asyncio.sleep(0)  # [SUCCESS] Force event loop flush
                 except Exception as e:
                     print(f"[Orchestrator] Dockerfile progress error: {e}")
             
             dockerfile_save = await self.docker_service.save_dockerfile(
                 analysis_result['dockerfile']['content'],
                 project_path,
-                progress_callback=dockerfile_progress  # ✅ PHASE 2: Pass callback
+                progress_callback=dockerfile_progress  # [SUCCESS] PHASE 2: Pass callback
             )
             
             if progress_notifier:
                 await progress_notifier.complete_stage(
                     DeploymentStages.DOCKERFILE_GEN,
-                    "✅ Dockerfile generated with optimizations",
+                    "[SUCCESS] Dockerfile generated with optimizations",
                     details={
                         "path": dockerfile_save.get('path', f'{project_path}/Dockerfile'),
                         "optimizations": len(analysis_result['dockerfile'].get('optimizations', []))
                     }
                 )
             
-            await self._send_progress_message("✅ Dockerfile generated with optimizations")
-            await asyncio.sleep(0)  # ✅ Force immediate delivery
+            await self._send_progress_message("[SUCCESS] Dockerfile generated with optimizations")
+            await asyncio.sleep(0)  # [SUCCESS] Force immediate delivery
             
             # Step 4: Create .dockerignore
             self.docker_service.create_dockerignore(
@@ -1120,21 +1298,24 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             
             # Store analysis in context
             self.project_context['analysis'] = analysis_result['analysis']
+            self.project_context['analysis_results'] = analysis_result['analysis']  # [SUCCESS] Alias for backwards compat
             self.project_context['framework'] = analysis_result['analysis']['framework']
             self.project_context['language'] = analysis_result['analysis']['language']
-            self.project_context['env_vars_required'] = len(analysis_result['analysis'].get('env_vars', [])) > 0
             
             # Format beautiful response
+            # Pass skip_deploy_prompt to suppress the "Ready to deploy?" question in direct mode
+            skip_prompt = locals().get('skip_deploy_prompt', False)
             content = self._format_analysis_response(
                 analysis_result, 
                 dockerfile_save, 
-                repo_url
+                repo_url,
+                skip_prompt=skip_prompt
             )
             
             # Persist for resumption visibility
             self.project_context['last_analysis_formatted'] = content
             
-            # ✅ ALWAYS offer env vars collection (user decides if needed)
+            # [SUCCESS] ALWAYS offer env vars collection (user decides if needed)
             env_vars_detected = analysis_result['analysis'].get('env_vars', [])
             
             if env_vars_detected and len(env_vars_detected) > 0:
@@ -1143,11 +1324,6 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 if len(env_vars_detected) > 3:
                     content += f" and {len(env_vars_detected) - 3} more"
             
-            # ONLY request env vars if they are actually detected - user can still add them via command if they want
-            # request_vars = len(env_vars_detected) > 0
-
-            # ✅ USER FEEDBACK: Always show env var screen but make it non-blocking
-            # "I didn't ask you to stop showing the .env upload screen... all I said is you'd account for project that doesn't require the .env"
             return {
                 'type': 'analysis_report',
                 'content': content,
@@ -1168,6 +1344,8 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 'content': f'[ERROR] **Analysis failed**\n\n```\n{str(e)}\n```\n\nPlease try again or check the logs.',
                 'timestamp': datetime.now().isoformat()
             }
+
+
 
 
     async def _send_progress_message(self, message: str, actions: List[Dict] = None):
@@ -1236,7 +1414,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         if not self.safe_send or not self.session_id:
             return
             
-        # ✅ SANITIZATION: Never send raw JSON strings as thoughts
+        # [SUCCESS] SANITIZATION: Never send raw JSON strings as thoughts
         if thought.strip().startswith('{') or thought.strip().startswith('['):
             try:
                 import json
@@ -1247,7 +1425,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 thought = "Analyzing complex data structure..."
 
         try:
-            # ✅ FAANG-Level Thought Propagation
+            # [SUCCESS] FAANG-Level Thought Propagation
             await self.safe_send(self.session_id, {
                 'type': 'thought',
                 'content': thought,
@@ -1301,6 +1479,38 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             print(f"[Orchestrator] Error extracting text: {e}")
         return ''
     
+    def _sanitize_requirements(self, project_path: str):
+        """
+        Surgical fix for requirements.txt to ensure Cloud Run compatibility.
+        Specifically swaps opencv-python for opencv-python-headless to eliminate libGL dependency.
+        """
+        try:
+            req_path = os.path.join(project_path, 'requirements.txt')
+            if os.path.exists(req_path):
+                print(f"[Orchestrator] 🩺 Sanitizing requirements at {req_path}")
+                with open(req_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                
+                modified = False
+                new_lines = []
+                for line in lines:
+                    # Detect opencv-python but NOT headless
+                    if 'opencv-python' in line and 'opencv-python-headless' not in line:
+                        # Replace with headless
+                        new_line = line.replace('opencv-python', 'opencv-python-headless')
+                        print(f"[Orchestrator] 🔄 Swapping dependency: {line.strip()} -> {new_line.strip()}")
+                        new_lines.append(new_line)
+                        modified = True
+                    else:
+                        new_lines.append(line)
+                
+                if modified:
+                    with open(req_path, 'w', encoding='utf-8') as f:
+                        f.writelines(new_lines)
+                    print("[Orchestrator] ✅ Sanitization complete: requirements.txt updated.")
+        except Exception as e:
+            print(f"[Orchestrator] [WARNING] Failed to sanitize requirements: {e}")
+
     async def _handle_function_call(
         self, 
         function_call, 
@@ -1318,7 +1528,72 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         function_name = function_call.name
         args = dict(function_call.args)
         
-        print(f"[Orchestrator] Function call: {function_name} with args: {args}")
+        print(f"[Orchestrator] Function call: {function_name}")
+        if 'env_vars' in args and args['env_vars']:
+             print(f"[Orchestrator] [INFO] Function Args contain {len(args['env_vars'])} env vars: {list(args['env_vars'].keys())}")
+        else:
+             if 'env_vars' in args:
+                 print(f"[Orchestrator] [WARNING] Function Args contain EMPTY 'env_vars' dict")
+             else:
+                 print(f"[Orchestrator] [WARNING] Function Args MISSING 'env_vars' key")
+                 
+             # [SUCCESS] CRITICAL FIX: Safety Net Injection
+             # If args are missing or empty but context has them (e.g. from app.py upload), INJECT THEM.
+             if function_name == 'deploy_to_cloudrun':
+                 context_vars = self.project_context.get('env_vars')
+                 if context_vars:
+                     print(f"[Orchestrator] [SAFETY] Safety Net: Injecting {len(context_vars)} env vars from Project Context")
+                     # Convert session format {'key': {'value': 'v'}} -> {'key': 'v'} if needed
+                     flat_vars = {}
+                     for k, v in context_vars.items():
+                         if isinstance(v, dict) and 'value' in v:
+                             flat_vars[k] = v['value']
+                         else:
+                             flat_vars[k] = str(v)
+                     args['env_vars'] = flat_vars
+                 else:
+                      print(f"[Orchestrator] [SAFETY] 🔎 Context empty. Attempting DEEP RECOVERY from local file store...")
+                      # [SUCCESS] FAANG-LEVEL RECOVERY: Try to reload from .devgem_env.json if memory was wiped
+                      project_path = args.get('project_path') or self.project_context.get('project_path')
+                      loaded_vars = None
+                      
+                      # Try 1: Local project file
+                      if project_path and os.path.exists(os.path.join(project_path, '.devgem_env.json')):
+                          try:
+                              with open(os.path.join(project_path, '.devgem_env.json'), 'r') as f:
+                                  loaded_vars = json.load(f)
+                                  print(f"[Orchestrator] [SAFETY] ✅ DEEP RECOVERY SUCCESS (local file): Loaded {len(loaded_vars)} vars.")
+                          except Exception as e:
+                              print(f"[Orchestrator] [SAFETY] ❌ Local file recovery failed: {e}")
+                      
+                      # Try 2: Global Backup Store (uses repo_url hash)
+                      if not loaded_vars:
+                          repo_url = self.project_context.get('repo_url')
+                          if repo_url:
+                              try:
+                                  repo_hash = hashlib.md5(repo_url.encode()).hexdigest()
+                                  home = os.path.expanduser("~")
+                                  global_env_file = os.path.join(home, ".gemini", "antigravity", "env_store", f"{repo_hash}.json")
+                                  if os.path.exists(global_env_file):
+                                      with open(global_env_file, 'r') as f:
+                                          loaded_vars = json.load(f)
+                                      print(f"[Orchestrator] [SAFETY] ✅ DEEP RECOVERY SUCCESS (global store): Loaded {len(loaded_vars)} vars.")
+                              except Exception as e:
+                                  print(f"[Orchestrator] [SAFETY] ❌ Global store recovery failed: {e}")
+                      
+                      if loaded_vars:
+                          # Standardize format for handler
+                          flat_vars = {}
+                          for k, v in loaded_vars.items():
+                              if isinstance(v, dict) and 'value' in v:
+                                  flat_vars[k] = v['value']
+                              else:
+                                  flat_vars[k] = str(v)
+                          args['env_vars'] = flat_vars
+                          # Restore memory for next time
+                          self.project_context['env_vars'] = loaded_vars
+                      else:
+                          print(f"[Orchestrator] ❌ Safety Net Failed: All recovery sources empty")
         
         # Route to real service handlers
         handlers = {
@@ -1343,7 +1618,8 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         self, 
         analysis_result: Dict, 
         dockerfile_save: Dict, 
-        repo_url: str
+        repo_url: str,
+        skip_prompt: bool = False # [SUCCESS] NEW: Suppress silly question
     ) -> str:
         """Format analysis results into a beautiful response"""
         analysis_data = analysis_result['analysis']
@@ -1363,7 +1639,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             parts.append(f"**Environment Variables:** {len(analysis_data['env_vars'])} detected")
         
         parts.append(
-            f"\n✅ **Dockerfile Generated** ({dockerfile_save.get('path', 'Dockerfile')})"
+            f"\n[SUCCESS] **Dockerfile Generated** ({dockerfile_save.get('path', 'Dockerfile')})"
         )
         
         optimizations = analysis_result['dockerfile']['optimizations'][:4]
@@ -1374,11 +1650,12 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         parts.extend(['• ' + rec for rec in recommendations])
         
         if analysis_result.get('warnings'):
-            parts.append("\n⚠️ **Warnings:**")
+            parts.append("\n[WARNING] **Warnings:**")
             warnings = analysis_result['warnings'][:2]
             parts.extend(['• ' + w for w in warnings])
         
-        parts.append("\nReady to deploy to Google Cloud Run! Would you like me to proceed?")
+        if not skip_prompt:
+            parts.append("\nReady to deploy to Google Cloud Run! Would you like me to proceed?")
         
         return '\n'.join(parts)
     
@@ -1431,13 +1708,13 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         
         # CRITICAL: Auto-generate service_name if not provided
         if not service_name:
-            # ✅ CHECK PREFERENCE: If user wants interactive mode, ASK them first!
+            # [SUCCESS] CHECK PREFERENCE: If user wants interactive mode, ASK them first!
             deployment_mode = self.preferences_service.get_deployment_mode()
             
             if deployment_mode == 'interactive':
                 return {
                     'type': 'message',
-                    'content': '🛠️ **Interactive Deployment Mode**\n\nPlease provide a name for your Cloud Run service (e.g., `my-app-v1`).',
+                    'content': '[TOOL] **Interactive Deployment Mode**\n\nPlease provide a name for your Cloud Run service (e.g., `my-app-v1`).',
                     'timestamp': datetime.now().isoformat()
                 }
 
@@ -1452,14 +1729,92 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             else:
                 service_name = 'servergem-app'
         
-        # CRITICAL: Use env_vars from project_context if not provided!
-        if not env_vars and 'env_vars' in self.project_context and self.project_context['env_vars']:
-            print(f"[Orchestrator] Using env_vars from project_context: {len(self.project_context['env_vars'])} vars")
-            # Convert format from {key: {value, isSecret}} to {key: value}
-            env_vars = {
-                key: val['value'] 
-                for key, val in self.project_context['env_vars'].items()
-            }
+        # -------------------------------------------------------------------------
+        # CRITICAL: Robust Env Var Loading & Merging Strategy
+        # Priority: Args (Overrides) > Memory > Secret Manager (Cloud) > Local File
+        # -------------------------------------------------------------------------
+        
+        final_env_vars = {}
+        
+        # 1. Load from Google Secret Manager (Cloud Native Persistence - FAANG Level)
+        # Stores env vars securely in the user's GCP project, keyed by Repo Name.
+        if repo_url:
+            try:
+                # Robust parsing for https://github.com/User/Repo.git
+                parts = repo_url.strip('/').split('/')
+                if len(parts) >= 2:
+                    user_name = parts[-2]
+                    repo_name = parts[-1].replace('.git', '')
+                else:
+                    user_name = 'default'
+                    repo_name = parts[-1].replace('.git', '')
+                
+                safe_user = re.sub(r'[^a-zA-Z0-9]', '', user_name).lower()
+                safe_repo = re.sub(r'[^a-zA-Z0-9-]', '-', repo_name).lower()
+                safe_repo = re.sub(r'-+', '-', safe_repo).strip('-')
+                
+                secret_id = f"devgem-{safe_user}-{safe_repo}-env"
+                
+                # Retrieve from Cloud
+                payload_json = await self.gcloud_service.access_secret(secret_id)
+                
+                if payload_json:
+                     saved_vars = json.loads(payload_json)
+                     for k, v in saved_vars.items():
+                         val = v['value'] if isinstance(v, dict) else v
+                         final_env_vars[k] = val
+                     print(f"[Orchestrator] [CLOUD] Loaded {len(saved_vars)} vars from Secret Manager: {secret_id}")
+            except Exception as e:
+                print(f"[Orchestrator] Warning: Secret Manager load failed: {e}")
+                
+        # 2. Load from Global Store Backup (Fallback if GSM failing)
+        # This keeps the system running even if GCP APIs are flaky
+        if not final_env_vars and repo_url:
+            try:
+                repo_hash = hashlib.md5(repo_url.encode()).hexdigest()
+                home = os.path.expanduser("~")
+                global_env_file = os.path.join(home, ".gemini", "antigravity", "env_store", f"{repo_hash}.json")
+                if os.path.exists(global_env_file):
+                     with open(global_env_file, 'r') as f:
+                        saved_vars = json.load(f)
+                     for k, v in saved_vars.items():
+                         val = v['value'] if isinstance(v, dict) else v
+                         final_env_vars[k] = val
+                     print(f"[Orchestrator] [BACKUP] Loaded {len(saved_vars)} vars from Global Backup Store")
+            except Exception as e:
+                print(f"[Orchestrator] Warning: Global store load failed: {e}")
+
+        # 3. Load from Local File (Legacy/Fallback)
+        try:
+            env_file_path = os.path.join(project_path, '.devgem_env.json')
+            if os.path.exists(env_file_path):
+                with open(env_file_path, 'r') as f:
+                    saved_vars = json.load(f)
+                for k, v in saved_vars.items():
+                    val = v['value'] if isinstance(v, dict) else v
+                    final_env_vars[k] = val
+                # print(f"[Orchestrator] Loaded vars from Local File") 
+        except Exception:
+            pass
+
+        # 3. Load from Memory (Session Context - recent updates)
+        if 'env_vars' in self.project_context:
+             for k, v in self.project_context['env_vars'].items():
+                 val = v['value'] if isinstance(v, dict) else v
+                 final_env_vars[k] = val
+
+        # 4. Merge Args (Overrides - e.g. PORT passed from caller)
+        if env_vars:
+             print(f"[Orchestrator] [MERGE] Merging {len(env_vars)} explicit env vars from arguments")
+             final_env_vars.update(env_vars)
+             
+        env_vars = final_env_vars
+        
+        # Update context to reflect the full merged state
+        if env_vars:
+            print(f"[Orchestrator] [SUCCESS] Final merged env vars count: {len(env_vars)}. Keys: {list(env_vars.keys())}")
+        else:
+            print(f"[Orchestrator] [WARNING] NO env vars found after all recovery attempts.")
         
         # Initialize env_vars if None
         if env_vars is None:
@@ -1473,6 +1828,46 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             env_vars['PORT'] = str(detected_port)
             print(f"[Orchestrator] Auto-injected PORT={detected_port} from analysis")
         
+        # [SUCCESS] PHASE 11 SAFETY: Abort if ONLY PORT exists (no real env vars)
+        # This prevents deployments that will definitely fail due to missing secrets
+        real_vars = {k: v for k, v in env_vars.items() if k != 'PORT'}
+        if not real_vars:
+            analysis = self.project_context.get('analysis', {})
+            # Check if this app likely needs env vars (has dependencies that need config)
+            deps = analysis.get('detected_features', {})
+            needs_secrets = any([
+                'firebase' in str(deps).lower(),
+                'gemini' in str(deps).lower(),
+                'openai' in str(deps).lower(),
+                'database' in str(deps).lower(),
+                'cloudinary' in str(deps).lower(),
+            ])
+            
+            if needs_secrets:
+                print(f"[Orchestrator] [CRITICAL] No env vars except PORT. App likely needs secrets. Aborting deployment.")
+                return {
+                    'type': 'message',
+                    'content': "**Configuration Required**\n\nThis application uses services that require API keys or credentials (Firebase, Gemini, etc.). Please configure your environment variables in the panel above before deploying.\n\n**Quick Fix:** Upload your `.env` file or manually enter the required variables.",
+                    'metadata': {
+                        'type': 'analysis_with_env_request',
+                        'request_env_vars': True,
+                        'default_name': service_name
+                    },
+                    'actions': [
+                        {
+                            'id': 'deploy-after-env',
+                            'label': 'Deploy After Configuration',
+                            'type': 'button',
+                            'variant': 'primary',
+                            'action': 'deploy_to_cloudrun',
+                            'intent': 'deploy'
+                        }
+                    ],
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                print(f"[Orchestrator] [INFO] No env vars except PORT, but app may not need secrets. Proceeding cautiously.")
+        
         if not self.gcloud_service:
             return {
                 'type': 'error',
@@ -1480,19 +1875,35 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 'timestamp': datetime.now().isoformat()
             }
         
-        # ✅ SMART RESUMPTION: Reuse existing deployment ID and state if available
+        # [SUCCESS] SMART RESUMPTION: Reuse existing deployment ID and state if available
+        # Check active_deployment OR project_context (more durable)
+        persisted_id = self.project_context.get('last_deployment_id')
+        
         if hasattr(self, 'active_deployment') and self.active_deployment and self.active_deployment.get('deploymentId'):
             deployment_id = self.active_deployment['deploymentId']
-            print(f"[Orchestrator] 🧬 Resuming existing deployment session: {deployment_id}")
-            # Ensure status is updated but DON'T wipe stages or startTime
+            print(f"[Orchestrator] 🧬 Resuming existing deployment session (RAM): {deployment_id}")
             self.active_deployment['status'] = 'deploying'
-            self.active_deployment['serviceName'] = service_name
+        elif persisted_id and env_vars: # Only reuse persisted ID if we are resuming with env vars
+            deployment_id = persisted_id
+            print(f"[Orchestrator] 🧬 Resuming existing deployment session (Context): {deployment_id}")
+            # Rehydrate active_deployment if missing
+            self.active_deployment = {
+                'deploymentId': deployment_id,
+                'status': 'deploying',
+                'currentStage': 'STARTING',
+                'stages': [],
+                'overallProgress': 0,
+                'startTime': datetime.now().isoformat(),
+                'serviceName': service_name
+            }
         else:
             # Generate NEW deployment ID for tracking
             deployment_id = f"deploy-{uuid.uuid4().hex[:8]}"
-            print(f"[Orchestrator] ✨ Initializing NEW deployment session: {deployment_id}")
+            # Save to context for durability
+            self.project_context['last_deployment_id'] = deployment_id
+            print(f"[Orchestrator] [SPARKLES] Initializing NEW deployment session: {deployment_id}")
             
-            # ✅ PHASE 4: Initialize structured activeDeployment for persistence
+            # [SUCCESS] PHASE 4: Initialize structured activeDeployment for persistence
             self.active_deployment = {
                 'deploymentId': deployment_id,
                 'status': 'deploying',
@@ -1502,6 +1913,68 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 'startTime': datetime.now().isoformat(),
                 'serviceName': service_name
             }
+        
+        # [SUCCESS] FIX: Track whether this is a fresh deployment vs a resumed one
+        # Fresh deployment = new deployment_id was generated above
+        is_fresh_deployment = not (persisted_id and env_vars) and not (
+            hasattr(self, 'active_deployment') and 
+            self.active_deployment and 
+            self.active_deployment.get('deploymentId') == persisted_id
+        )
+        
+        # [SUCCESS] UI SYNC: Only broadcast deployment_started for FRESH deployments
+        # On resume, the UI already has staged progress - sending this resets it!
+        if progress_notifier and is_fresh_deployment:
+            print(f"[Orchestrator] Broadcasting deployment_started (FRESH) for {deployment_id}")
+            await progress_notifier.send_message(
+                'deployment_started',
+                {
+                    'deploymentId': deployment_id,
+                    'serviceName': service_name,
+                    'status': 'deploying',
+                    'timestamp': datetime.now().isoformat()
+                }
+            )
+        elif progress_notifier:
+            # [SUCCESS] CRITICAL FIX: Send deployment_resumed to let frontend know we're continuing
+            # This preserves existing stages while signaling deployment is active
+            print(f"[Orchestrator] Broadcasting deployment_resumed (RESUME) for {deployment_id}")
+            await progress_notifier.send_message(
+                'deployment_resumed',
+                {
+                    'deployment_id': deployment_id,
+                    'resume_stage': 'container_build',  # Skip to build since env vars are done
+                    'resume_progress': 25,  # Approximate progress at this point
+                    'timestamp': datetime.now().isoformat()
+                }
+            )
+        
+        # [SUCCESS] STAGE BACKFILL: Immediately mark pre-requisite stages as SUCCESS if they are done.
+        # This ensures the UI panel opens with "Clone" and "Analysis" already green,
+        # preserving the user's sense of progress during "Skip" or "Resume" flows.
+        # Runs for BOTH fresh and resume deployments when notifier is available.
+        if progress_notifier:
+            # Check for Repo Clone
+            if self.project_context.get('project_path') and os.path.exists(self.project_context['project_path']):
+                await progress_notifier.complete_stage(
+                    DeploymentStages.REPO_CLONE,
+                    "Repository available in workspace"
+                )
+                
+            # Check for Analysis
+            if self.project_context.get('analysis'):
+                await progress_notifier.complete_stage(
+                    DeploymentStages.CODE_ANALYSIS,
+                    "Project intelligence loaded"
+                )
+            
+            # Check for Env Vars (if we are proceeding, they are either done or skipped)
+            if env_vars:
+                await progress_notifier.complete_stage(
+                    DeploymentStages.ENV_VARS,
+                    "Environment variables configured"
+                )
+
         
         start_time = time.time()
         
@@ -1547,14 +2020,14 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             
             self.monitoring.record_stage(deployment_id, 'validation', 'success', 0.5)
             
-            # ✅ PHASE 3: Pre-flight GCP checks
+            # [SUCCESS] PHASE 3: Pre-flight GCP checks
             if progress_callback:
                 await progress_callback({
                     'type': 'message',
                     'data': {'content': '🔍 Running pre-flight checks...'}
                 })
             
-            # ✅ CRITICAL FIX: Make lambda async to prevent NoneType await error
+            # [SUCCESS] CRITICAL FIX: Make lambda async to prevent NoneType await error
             async def preflight_progress_wrapper(msg: str):
                 if progress_callback:
                     await progress_callback({
@@ -1582,7 +2055,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             if progress_callback:
                 await progress_callback({
                     'type': 'message',
-                    'data': {'content': '✅ All pre-flight checks passed'}
+                    'data': {'content': '[SUCCESS] All pre-flight checks passed'}
                 })
             
             # DevGem ARCHITECTURE: No user GCP auth needed
@@ -1593,12 +2066,26 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             if True:
                 print(f"[Orchestrator] Generating/Overwriting Dockerfile at {dockerfile_path} to ensure template freshness...")
                 
-                # We need analysis data to generate. If not in context, mock/infer it.
-                analysis_data = self.project_context.get('analysis_results', {
-                    'language': 'node', # Fallback
-                    'framework': 'vite', # Fallback
-                    'port': 8080
-                })
+                # [SUCCESS] CRITICAL FIX: Use correct key 'analysis' (stored at line 1122)
+                # [SUCCESS] DEFENSIVE: Use file-based fallback that detects language from repo files
+                stored_analysis = self.project_context.get('analysis')
+                if stored_analysis:
+                    analysis_data = stored_analysis
+                    print(f"[Orchestrator] [SUCCESS] Using cached analysis: {analysis_data.get('language')}/{analysis_data.get('framework')}")
+                else:
+                    # Emergency file-based detection - check for obvious markers in the repo
+                    print(f"[Orchestrator] [WARNING] No analysis in context, using file-based detection...")
+                    from pathlib import Path
+                    project_path_obj = Path(project_path)
+                    if (project_path_obj / 'requirements.txt').exists():
+                        analysis_data = {'language': 'python', 'framework': 'fastapi', 'port': 8080}
+                    elif (project_path_obj / 'go.mod').exists():
+                        analysis_data = {'language': 'golang', 'framework': 'gin', 'port': 8080}
+                    elif (project_path_obj / 'package.json').exists():
+                        analysis_data = {'language': 'node', 'framework': 'vite', 'port': 8080}
+                    else:
+                        analysis_data = {'language': 'python', 'framework': 'fastapi', 'port': 8080}  # Safe default
+                    print(f"[Orchestrator] 🩺 File-based detection: {analysis_data['language']}/{analysis_data['framework']}")
 
                 # Generate - note: progress_callback is not passed here to avoid format mismatch
                 gen_result = await self.docker_expert.generate_dockerfile(
@@ -1624,11 +2111,21 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 # Try regenerating ONE LAST TIME if validation failed (e.g. if it was an old invalid file)
                 print(f"[Orchestrator] Dockerfile invalid. Regenerating...")
                 
-                analysis_data = self.project_context.get('analysis_results', {
-                    'language': 'node', 
-                    'framework': 'vite',
-                    'port': 8080
-                })
+                # [SUCCESS] CRITICAL FIX: Use correct key 'analysis' with file-based fallback
+                stored_analysis = self.project_context.get('analysis')
+                if stored_analysis:
+                    analysis_data = stored_analysis
+                else:
+                    from pathlib import Path
+                    project_path_obj = Path(project_path)
+                    if (project_path_obj / 'requirements.txt').exists():
+                        analysis_data = {'language': 'python', 'framework': 'fastapi', 'port': 8080}
+                    elif (project_path_obj / 'go.mod').exists():
+                        analysis_data = {'language': 'golang', 'framework': 'gin', 'port': 8080}
+                    elif (project_path_obj / 'package.json').exists():
+                        analysis_data = {'language': 'node', 'framework': 'vite', 'port': 8080}
+                    else:
+                        analysis_data = {'language': 'python', 'framework': 'fastapi', 'port': 8080}
                 
                 gen_result = await self.docker_expert.generate_dockerfile(
                     analysis_data,
@@ -1699,16 +2196,16 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                         data.get('total_steps', 10),
                         data.get('description', 'Building...')
                     )
-                    await asyncio.sleep(0)  # ✅ Force flush
+                    await asyncio.sleep(0)  # [SUCCESS] Force flush
                 elif data.get('progress'):
                     await tracker.emit_build_progress(data['progress'])
-                    await asyncio.sleep(0)  # ✅ Force flush
+                    await asyncio.sleep(0)  # [SUCCESS] Force flush
                 
                 if data.get('logs'):
                     await tracker.emit_build_logs(data['logs'])
-                    await asyncio.sleep(0)  # ✅ Force flush
+                    await asyncio.sleep(0)  # [SUCCESS] Force flush
 
-                # ✅ CRITICAL: Also send direct progress messages
+                # [SUCCESS] CRITICAL: Also send direct progress messages
                 if data.get('message'):
                     # Update structured state for persistence
                     if self.active_deployment:
@@ -1727,9 +2224,9 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     if self.save_callback:
                         asyncio.create_task(self.save_callback())
                         
-                    await asyncio.sleep(0)  # ✅ Force flush
+                    await asyncio.sleep(0)  # [SUCCESS] Force flush
             
-            # ✅ PHASE 2: Use resilient build with retry logic
+            # [SUCCESS] PHASE 2: Use resilient build with retry logic
             # Get token from GitHub service for authenticated clone
             github_token = self.github_service.token if self.github_service else None
             
@@ -1737,6 +2234,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 project_path,
                 service_name,
                 progress_callback=build_progress,
+                build_config={'language': self.project_context.get('language', 'unknown')},  # [SUCCESS] Pass language for healing
                 repo_url=repo_url,
                 github_token=github_token
             )
@@ -1752,7 +2250,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 )
                 self.monitoring.complete_deployment(deployment_id, 'failed')
                 
-                # ✅ PHASE 2: Enhanced error messaging with remediation
+                # [SUCCESS] PHASE 2: Enhanced error messaging with remediation
                 error_msg = build_result.get('error', 'Build failed')
                 remediation = build_result.get('remediation', [])
                 
@@ -1761,6 +2259,8 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     content += "\n\n**Recommended Actions:**\n"
                     content += "\n".join(f"{i+1}. {step}" for i, step in enumerate(remediation))
                 
+                content += "\n\n**SYSTEM_INSTRUCTION: Do not automatically retry this deployment.**"
+
                 return {
                     'type': 'error',
                     'content': content,
@@ -1793,9 +2293,9 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 """Forward deployment progress to tracker - REAL-TIME"""
                 if data.get('status'):
                     await tracker.emit_deployment_status(data['status'])
-                    await asyncio.sleep(0)  # ✅ Force flush
+                    await asyncio.sleep(0)  # [SUCCESS] Force flush
                 
-                # ✅ CRITICAL: Also send direct progress messages
+                # [SUCCESS] CRITICAL: Also send direct progress messages
                 if data.get('message'):
                     # Update structured state for persistence
                     if self.active_deployment:
@@ -1814,17 +2314,26 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     if self.save_callback:
                         asyncio.create_task(self.save_callback())
                         
-                    await asyncio.sleep(0)  # ✅ Force flush
+                    await asyncio.sleep(0)  # [SUCCESS] Force flush
             
             # Add resource configuration to deployment
             deploy_env = env_vars or {}
+            
+            # Extract intelligent deployment parameters from analysis
+            analysis = self.project_context.get('analysis', {})
+            health_path = analysis.get('health_check_path', '/')
+            mem_limit = analysis.get('memory_limit', '512Mi')
+            cpu_limit = analysis.get('cpu_limit', '1')
             
             deploy_result = await self.gcloud_service.deploy_to_cloudrun(
                 build_result['image_tag'],
                 service_name,
                 env_vars=deploy_env,
                 progress_callback=deploy_progress,
-                user_id=deployment_id[:8]
+                user_id=deployment_id[:8],
+                health_check_path=health_path,
+                memory_limit=mem_limit,
+                cpu_limit=cpu_limit
             )
             
             deploy_duration = time.time() - deploy_start
@@ -1838,11 +2347,11 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 )
                 self.monitoring.complete_deployment(deployment_id, 'failed')
                 
-                # ✅ PHASE 2: Enhanced error messaging with remediation
+                # [SUCCESS] PHASE 2: Enhanced error messaging with remediation
                 error_msg = deploy_result.get('error', 'Deployment failed')
                 remediation = deploy_result.get('remediation', [])
                 
-                # ✅ NEW: Automatic Post-Mortem Log Fetching
+                # [SUCCESS] NEW: Automatic Post-Mortem Log Fetching
                 logs_snippet = ""
                 try:
                     unique_service_name = deploy_result.get('service_name') or f"{deployment_id[:8]}-{service_name}"
@@ -1872,7 +2381,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             # Only record success if deployment actually succeeded
             self.monitoring.record_stage(deployment_id, 'deploy', 'success', deploy_duration)
             
-            # ✅ PHASE 3: Map custom domain (Real-time)
+            # [SUCCESS] PHASE 3: Map custom domain (Real-time)
             domain_result = await self.domain_service.map_custom_domain(
                 service_name, 
                 f"{service_name}.servergem.app"
@@ -1880,10 +2389,10 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             # DO NOT overwrite the primary URL if custom domain is not fully ready/verified
             # The Cloud Run URL is the more "certain" working link
             if domain_result['success']:
-                print(f"[Orchestrator] ✅ Mapped domain: {domain_result['domain']}")
+                print(f"[Orchestrator] [SUCCESS] Mapped domain: {domain_result['domain']}")
                 deploy_result['custom_url'] = f"https://{domain_result['domain']}"
             
-            # ✅ PHASE 2: Post-deployment health verification
+            # [SUCCESS] PHASE 2: Post-deployment health verification
             if progress_callback:
                 await progress_callback({
                     'type': 'message',
@@ -1947,7 +2456,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             if progress_callback:
                 await progress_callback({
                     'type': 'message',
-                    'data': {'content': f'✅ Health verified! Response time: {health_result.response_time_ms:.0f}ms'}
+                    'data': {'content': f'[SUCCESS] Health verified! Response time: {health_result.response_time_ms:.0f}ms'}
                 })
             
             # Success! Complete deployment
@@ -1962,7 +2471,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             self.project_context['deployment_url'] = deploy_result['url']
             self.project_context['deployment_id'] = deployment_id
             
-            # ✅ Finalize deployment state
+            # [SUCCESS] Finalize deployment state
             if self.active_deployment:
                 self.active_deployment['status'] = 'success'
                 self.active_deployment['currentStage'] = 'COMPLETE'
@@ -2012,19 +2521,19 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 'actions': [
                     {
                         'id': 'view_logs',
-                        'label': '📊 View Logs',
+                        'label': '[CHART] View Logs',
                         'type': 'button',
                         'action': 'view_logs'
                     },
                     {
                         'id': 'setup_cicd',
-                        'label': '🔄 Setup CI/CD',
+                        'label': '[SYNC] Setup CI/CD',
                         'type': 'button',
                         'action': 'setup_cicd'
                     },
                     {
                         'id': 'custom_domain',
-                        'label': '🌐 Add Custom Domain',
+                        'label': '[GLOBE] Add Custom Domain',
                         'type': 'button',
                         'action': 'custom_domain'
                     }
@@ -2176,7 +2685,7 @@ Which repository would you like to deploy? Just tell me the name or paste the UR
                     'message': f'Fetching logs for {service_name}...'
                 })
             
-            logs = self.gcloud_service.get_service_logs(service_name, limit=limit)
+            logs = await self.gcloud_service.get_service_logs(service_name, limit=limit)
             
             if not logs or len(logs) == 0:
                 return {
@@ -2261,15 +2770,15 @@ Showing last {min(20, len(logs))} entries (total: {len(logs)})
         """Reset chat session and ALL context - CRITICAL for session isolation"""
         self.chat_session = None
         self.conversation_history = []
-        self.ui_history = []  # ✅ Extended history for high-fidelity UI rehydration
-        self.project_context = {}  # ✅ CRITICAL: Clear all project context!
-        self.active_deployment = None  # ✅ Clear deployment state
-        print("[Orchestrator] ✅ Full reset complete: chat, history, context, deployment")
+        self.ui_history = []  # [SUCCESS] Extended history for high-fidelity UI rehydration
+        self.project_context = {}  # [SUCCESS] CRITICAL: Clear all project context!
+        self.active_deployment = None  # [SUCCESS] Clear deployment state
+        print("[Orchestrator] [SUCCESS] Full reset complete: chat, history, context, deployment")
         
     def reset_context(self):
         """Standard method used by app.py for session isolation"""
-        print(f"[Orchestrator] 🔄 Resetting context and chat history...")
-        # ✅ CRITICAL: Clear project context to prevent leakage between sessions
+        print(f"[Orchestrator] [SYNC] Resetting context and chat history...")
+        # [SUCCESS] CRITICAL: Clear project context to prevent leakage between sessions
         self.project_context = {}
         self.ui_history = []
         self.active_deployment = None
@@ -2301,7 +2810,7 @@ Showing last {min(20, len(logs))} entries (total: {len(logs)})
         """Serialize agent state for persistence"""
         history_data = self._serialize_history()
         
-        # ✅ CRITICAL: Deep clean context to handle non-serializable AI results
+        # [SUCCESS] CRITICAL: Deep clean context to handle non-serializable AI results
         clean_context = self._clean_serializable(self.project_context)
         
         # Generate a descriptive title from history
@@ -2310,43 +2819,41 @@ Showing last {min(20, len(logs))} entries (total: {len(logs)})
         # Priority 0: Explicitly set custom title
         custom_session_title = self.project_context.get('custom_title')
         if custom_session_title:
-            return {
-                'title': custom_session_title,
-                'project_context': clean_context,
-                'history': history_data,
-                'ui_history': self.ui_history,
-                'timestamp': datetime.now().isoformat()
-            }
-
-        # Priority 1: Custom service name or Repo name from context
-        repo_url = self.project_context.get('repo_url') or self.project_context.get('project_path', '')
-        custom_name = self.project_context.get('custom_service_name')
-        
-        if custom_name:
-            title = f"Deploy: {custom_name}"
-        elif repo_url:
-            repo_name = repo_url.split('/')[-1].replace('.git', '')
-            title = f"Deploy: {repo_name}"
-        elif history_data:
-            # Priority 2: Extract from first user message
-            first_user_msg = next((m for m in history_data if m.get('role') == 'user'), None)
-            if first_user_msg and first_user_msg.get('parts'):
-                text = first_user_msg['parts'][0].get('text', '')
-                if text:
-                    # Look for URL in text even if not in context yet
-                    import re
-                    url_match = re.search(r'github\.com/([^/\s]+/[^/\s\.]+)', text)
-                    if url_match:
-                        title = f"Deploy: {url_match.group(1).split('/')[-1]}"
-                    else:
-                        title = text[:50] + ("..." if len(text) > 50 else "")
+            title = custom_session_title
+        else:
+            # Priority 1: Custom service name or Repo name from context
+            repo_url = self.project_context.get('repo_url') or self.project_context.get('project_path', '')
+            custom_name = self.project_context.get('custom_service_name')
+            
+            if custom_name:
+                title = f"Deploy: {custom_name}"
+            elif repo_url:
+                repo_name = repo_url.split('/')[-1].replace('.git', '')
+                title = f"Deploy: {repo_name}"
+            elif history_data:
+                # Priority 2: Extract from first user message
+                first_user_msg = next((m for m in history_data if m.get('role') == 'user'), None)
+                if first_user_msg and first_user_msg.get('parts'):
+                    parts = first_user_msg['parts']
+                    text = ""
+                    if isinstance(parts, list) and parts:
+                        text = parts[0].get('text', '')
+                    
+                    if text:
+                        # Look for URL in text even if not in context yet
+                        import re
+                        url_match = re.search(r'github\.com/([^/\s]+/[^/\s\.]+)', text)
+                        if url_match:
+                            title = f"Deploy: {url_match.group(1).split('/')[-1]}"
+                        else:
+                            title = text[:50] + ("..." if len(text) > 50 else "")
         
         return {
             'title': title,
             'project_context': clean_context,
             'history': history_data,
-            'ui_history': self.ui_history, # ✅ Include high-fidelity history
-            'active_deployment': self.active_deployment, # ✅ Persist structured deployment state
+            'ui_history': self.ui_history, # [SUCCESS] Include high-fidelity history
+            'active_deployment': self.active_deployment, # [SUCCESS] Persist structured deployment state
             'timestamp': datetime.now().isoformat()
         }
         
@@ -2363,9 +2870,8 @@ Showing last {min(20, len(logs))} entries (total: {len(logs)})
     
     def load_state(self, data: Dict[str, Any]) -> None:
         """
-        ✅ CRITICAL FIX: Restore agent state from persisted data.
+        [SUCCESS] CRITICAL FIX: Restore agent state from persisted data.
         This method is called when rehydrating a session from Redis/SQLite.
-        Without this, all chat history is lost on page refresh!
         """
         if not data:
             return
@@ -2382,25 +2888,24 @@ Showing last {min(20, len(logs))} entries (total: {len(logs)})
         # Restore project context (repo_url, project_path, etc.)
         self.project_context = data.get('project_context', {})
         
+        # [SUCCESS] ROCK-SOLID: Context Integrity Check
+        project_path = self.project_context.get('project_path')
+        if project_path:
+            if os.path.exists(project_path):
+                print(f"[Orchestrator] [CONTEXT-OK] Project path exists: {project_path}")
+            else:
+                print(f"[Orchestrator] [CONTEXT-STALE] Project path missing: {project_path}")
+        
         # Restore Gemini conversation history if available
         serialized_history = data.get('history', [])
         if serialized_history and self.model:
             try:
-                # Reconstruct Content objects for Gemini chat
-                from vertexai.generative_models import Content, Part
-                restored_history = []
-                for turn in serialized_history:
-                    role = turn.get('role', 'user')
-                    parts = []
-                    for part_data in turn.get('parts', []):
-                        if 'text' in part_data:
-                            parts.append(Part.from_text(part_data['text']))
-                    if parts:
-                        restored_history.append(Content(role=role, parts=parts))
+                # Reconstruct Content objects for Gemini chat using standardized helper
+                restored_history = self._deserialize_history(serialized_history)
                 
                 # Start chat with restored history
                 self.chat_session = self.model.start_chat(history=restored_history)
-                print(f"[Orchestrator] Restored Gemini chat with {len(restored_history)} turns")
+                print(f"[Orchestrator] Restored Gemini session with {len(restored_history)} turns")
             except Exception as e:
                 print(f"[Orchestrator] Failed to restore Gemini history: {e}")
                 self.chat_session = self.model.start_chat(history=[])
@@ -2464,34 +2969,27 @@ Showing last {min(20, len(logs))} entries (total: {len(logs)})
                 deserialized.append(Content(role=item['role'], parts=parts))
         
         return deserialized
-    def load_state(self, state: Dict[str, Any]):
-        """Load agent state from persistence"""
-        if not state:
-            return
-            
-        self.project_context = state.get('project_context', {})
-        self.ui_history = state.get('ui_history', [])  # ✅ Restore rehydration history
-        
-        # ✅ ROCK-SOLID: Context Integrity Check
-        project_path = self.project_context.get('project_path')
-        if project_path:
-            if os.path.exists(project_path):
-                print(f"[Orchestrator] [CONTEXT-OK] Project path exists: {project_path}")
-            else:
-                print(f"[Orchestrator] [CONTEXT-STALE] Project path missing: {project_path}. Re-clone will be triggered on next deployment action.")
-        
-        history_data = state.get('history', [])
-        
-        # Reconstruct history for active session
-        if history_data:
-            self.conversation_history = history_data
-            try:
-                history_objects = self._deserialize_history(history_data)
-                self.chat_session = self.model.start_chat(history=history_objects)
-                print(f"[Orchestrator] [SUCCESS] Restored session with {len(history_objects)} messages")
-            except Exception as e:
-                print(f"[Orchestrator] [WARNING] Failed to restore history: {e}")
-                self.chat_session = self.model.start_chat(history=[])
+    
+    def _normalize_repo_url(self, url: str) -> str:
+        """Deep normalization for GitHub URLs to ensure context integrity"""
+        if not url: return ""
+        try:
+            import re
+            u = str(url).strip().lower()
+            # Remove protocols (http, https, git)
+            u = re.sub(r'^https?://', '', u)
+            u = re.sub(r'^git@', '', u).replace(':', '/')
+            # Remove trailing slash and .git extension
+            u = u.rstrip('/')
+            if u.endswith('.git'):
+                u = u[:-4]
+            # Replace underscores with hyphens for service names (common swap)
+            u = u.replace('_', '-')
+            return u
+        except Exception as e:
+            print(f"[Orchestrator] URL normalization warning: {e}")
+            return str(url).lower().strip().rstrip('/')
+    
     
 
 
@@ -2513,7 +3011,7 @@ async def test_orchestrator():
         print("[Test] GOOGLE_CLOUD_PROJECT not found in environment")
         return
     
-    print("[Test] Initializing ServerGem Orchestrator with Vertex AI...")
+    print("[Test] Initializing DevGem Orchestrator with Vertex AI...")
     orchestrator = OrchestratorAgent(
         gcloud_project=gcloud_project,
         github_token=github_token,

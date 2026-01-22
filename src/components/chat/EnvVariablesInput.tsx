@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Upload, Edit3, SkipForward, Rocket, CheckCircle } from 'lucide-react';
+import { Upload, Edit3, SkipForward, Rocket } from 'lucide-react';
 import { EnvFileUpload, EnvVariable } from './EnvFileUpload';
 import { ManualEnvInput } from './ManualEnvInput';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -51,6 +51,8 @@ export function EnvVariablesInput({ onEnvSubmit, onSkip, sendMessageToBackend }:
   };
 
   if (isSubmitted) {
+    // ✅ FAANG-LEVEL: Auto-deploy is triggered by backend immediately after env vars upload
+    // Show deploying state instead of manual launch button
     return (
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
@@ -58,33 +60,23 @@ export function EnvVariablesInput({ onEnvSubmit, onSkip, sendMessageToBackend }:
         className="flex flex-col items-center justify-center p-8 space-y-6 text-center"
       >
         <div className="relative">
-          <CheckCircle className="w-16 h-16 text-green-500" />
           <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1.5, opacity: 0 }}
-            transition={{ duration: 1, repeat: Infinity }}
-            className="absolute inset-0 bg-green-500/20 rounded-full"
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full"
           />
+          <Rocket className="w-8 h-8 text-purple-500 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
         </div>
 
         <div>
-          <h3 className="text-xl font-bold text-white mb-2">Configuration Ready!</h3>
+          <h3 className="text-xl font-bold text-white mb-2">Deploying to Cloud Run...</h3>
           <p className="text-gray-400 max-w-xs mx-auto">
-            {varCount} environment variables have been securely synchronized. You're ready for takeoff.
+            {varCount} environment variables synchronized. Deployment in progress.
           </p>
         </div>
 
-        <button
-          onClick={handleLaunch}
-          className="group relative flex items-center justify-center gap-3 w-full max-w-sm py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold rounded-xl shadow-xl shadow-purple-500/20 transition-all duration-300 transform hover:-translate-y-1 active:scale-[0.98]"
-        >
-          <Rocket className="w-6 h-6 group-hover:animate-bounce" />
-          <span className="text-lg tracking-wide uppercase">🚀 Launch Deployment</span>
-          <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl" />
-        </button>
-
-        <p className="text-[10px] text-gray-500 uppercase tracking-widest animate-pulse">
-          Standing by for Mission Control ignition
+        <p className="text-[10px] text-purple-400 uppercase tracking-widest animate-pulse">
+          🚀 Mission Control: Launch sequence initiated
         </p>
       </motion.div>
     );
@@ -124,11 +116,20 @@ export function EnvVariablesInput({ onEnvSubmit, onSkip, sendMessageToBackend }:
 
         {onSkip && (
           <button
-            onClick={onSkip}
+            onClick={() => {
+              if (sendMessageToBackend) {
+                console.log('[EnvVariablesInput] User clicked SKIP. Sending explicit skip message...');
+                sendMessageToBackend('message', {
+                  message: 'skip',
+                  metadata: { type: 'env_skip' }
+                });
+              }
+              onSkip(); // Keep original callback for UI transition if needed
+            }}
             className="skip-btn"
           >
             <SkipForward size={16} />
-            Skip (I'll add them later)
+            Skip (Not required for my project)
           </button>
         )}
       </div>

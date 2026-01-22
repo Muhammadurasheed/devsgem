@@ -36,18 +36,30 @@ export const DeploymentStages = ({ currentStage, progress }: DeploymentStagesPro
         return () => clearInterval(interval);
     }, [currentStage, startTime]);
 
-    // Robust Active Index Logic
+    // Robust Active Index Logic - Maps backend stage IDs to UI pipeline steps
     const getStepIndex = (stage: string) => {
         if (!stage) return 0;
         const s = stage.toUpperCase();
-        // Completed states override everything
+
+        // Completed states override everything (index 5 = beyond last stage)
         if (s.includes('COMPLETE') || s.includes('SUCCESS') || s.includes('LIVE')) return 5;
 
-        if (s.includes('CLONE')) return 0;
-        if (s.includes('ANALYSIS') || s.includes('ANALYZE')) return 1;
-        if (s.includes('BUILD') || s.includes('DOCKER')) return 2;
-        if (s.includes('DEPLOY') || s.includes('PROVISION')) return 3;
-        if (s.includes('HEALTH') || s.includes('VERIFY')) return 3;
+        // Stage 0: Repository Clone
+        if (s.includes('CLONE') || s.includes('REPO')) return 0;
+
+        // Stage 1: Code Analysis (includes dockerfile generation)
+        if (s.includes('ANALYSIS') || s.includes('ANALYZE') || s.includes('CODE_ANALYSIS') ||
+            s.includes('DOCKERFILE')) return 1;
+
+        // Stage 2: Build (includes security scan, docker build, kaniko, container build)
+        if (s.includes('BUILD') || s.includes('DOCKER') || s.includes('CONTAINER') ||
+            s.includes('SECURITY') || s.includes('KANIKO') || s.includes('IMAGE')) return 2;
+
+        // Stage 3: Deploy (includes provisioning, health check, service creation)
+        if (s.includes('DEPLOY') || s.includes('PROVISION') || s.includes('CLOUD') ||
+            s.includes('HEALTH') || s.includes('VERIFY') || s.includes('SERVICE') ||
+            s.includes('ENV_VARS') || s.includes('IAM')) return 3;
+
         return 0;
     };
 

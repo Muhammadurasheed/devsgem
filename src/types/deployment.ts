@@ -73,6 +73,13 @@ export const DEPLOYMENT_STAGES: DeploymentStage[] = [
     weight: 5,
   },
   {
+    id: 'env_vars',
+    label: 'Environment Config',
+    icon: '⚙️',
+    status: 'waiting',
+    weight: 5,
+  },
+  {
     id: 'security_scan',
     label: 'Security Scan',
     icon: '🔒',

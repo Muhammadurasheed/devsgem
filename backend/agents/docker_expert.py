@@ -23,7 +23,7 @@ class DockerExpertAgent:
     def _load_templates(self) -> Dict[str, str]:
         """Production-optimized Dockerfile templates"""
         
-        return {
+        templates = {
             'python_flask': """# Multi-stage build for Flask
 FROM python:3.11-slim AS builder
 WORKDIR /app
@@ -59,7 +59,7 @@ ENV PATH=/home/appuser/.local/bin:$PATH
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8080
-CMD ["uvicorn", "{entry_point}:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["sh", "-c", "uvicorn {entry_point}:app --host 0.0.0.0 --port ${PORT:-8080}"]
 """,
             
             'nodejs_express': """# Multi-stage build for Express
@@ -126,15 +126,17 @@ ENV PORT=8080
 EXPOSE 8080
 CMD ["/main"]
 """,
-            
-            'nodejs_vite': r"""# Multi-stage build for Vite/React/SPA
+        }
+        
+        # ✅ DEFINE TEMPLATES AS VARIABLES FOR ROBUST ALIASING
+        nodejs_vite_template = r"""# Multi-stage build for Vite/React/SPA
 # Using slim for glibc compatibility during npm install
 FROM node:20-slim AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build
+RUN npm run build   
 
 # ✅ NORMALIZE OUTPUT: Folder naming depends on framework (dist vs build)
 # We move whichever exists to a standard 'output' folder
@@ -167,7 +169,49 @@ USER node
 CMD ["sh", "-c", "serve -s static -l $PORT"]
 """
 
-        }
+        nodejs_nextjs_template = r"""# Multi-stage build for Next.js
+# Using slim instead of alpine for glibc compatibility
+FROM node:20-slim AS deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+FROM node:20-slim AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+FROM node:20-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN groupadd -g 1001 nodejs && useradd -u 1001 -g nodejs -m nextjs
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+USER nextjs
+EXPOSE 3000
+CMD ["node", "server.js"]
+"""
+
+        # Update dict with variables
+        templates.update({
+            'nodejs_vite': nodejs_vite_template,
+            'nodejs_nextjs': nodejs_nextjs_template,
+            
+            # ✅ ALIASES: Map specific framework/language combos to the master templates
+            'typescript_react': nodejs_vite_template,
+            'javascript_react': nodejs_vite_template,
+            'typescript_vite': nodejs_vite_template,
+            'javascript_vite': nodejs_vite_template,
+            'typescript_nextjs': nodejs_nextjs_template,
+            'javascript_nextjs': nodejs_nextjs_template,
+        })
+        
+        return templates
     
     async def generate_dockerfile(self, analysis: Dict, progress_notifier=None, progress_callback=None) -> Dict:
         """Generate optimized Dockerfile based on analysis with real-time progress"""
@@ -183,16 +227,25 @@ CMD ["sh", "-c", "serve -s static -l $PORT"]
             )
         
         framework_key = f"{analysis['language']}_{analysis['framework']}"
+        print(f"[DockerExpert] 🛠️ Processing: Language={analysis['language']}, Framework={analysis['framework']}, Key={framework_key}")
         
         # ✅ COMPREHENSIVE SYNONYM MAPPING: Handle all variants
         # Language normalization: 'node' -> 'nodejs', 'go' -> 'golang'
-        if analysis['language'] == 'node':
+        # Treat javascript/typescript as nodejs explicitly
+        lang = analysis['language'].lower()
+        if lang in ['node', 'javascript', 'typescript', 'js', 'ts']:
             framework_key = f"nodejs_{analysis['framework']}"
-        elif analysis['language'] == 'go':
+        elif lang == 'go':
             framework_key = f"golang_{analysis['framework']}"
         
+        # ✅ FORCE PYTHON: Prevent Python projects from drifting to Node templates
+        if lang == 'python':
+             # Restore key if it was drifted or if framework is unknown
+             if 'node' in framework_key or 'vite' in framework_key:
+                 framework_key = f"python_{analysis['framework']}"
+        
         # Framework normalization: react/vite -> vite, and handle 'unknown' as a vite fallback for node
-        if analysis['language'] in ['node', 'nodejs']:
+        if lang in ['node', 'nodejs', 'javascript', 'typescript', 'js', 'ts']:
             if analysis['framework'] == "react":
                 framework_key = "nodejs_vite"
             if framework_key in ["nodejs_unknown", "node_unknown"]:
@@ -221,10 +274,23 @@ CMD ["sh", "-c", "serve -s static -l $PORT"]
                     50
                 )
             
+            # ✅ PHASE 1.2: Smart System Dependency Resolution
+            system_deps = []
+            if analysis.get('dependencies'):
+                if progress_callback:
+                    await progress_callback("🧠 Analyzing system dependencies with Gemini...")
+                    await asyncio.sleep(0)
+                
+                system_deps = await self._resolve_system_dependencies(analysis['dependencies'])
+                
+                if system_deps and progress_callback:
+                    await progress_callback(f"📦 Identified system packages: {', '.join(system_deps)}")
+                    await asyncio.sleep(0)
+
             template = self.templates[framework_key]
-            dockerfile = self._customize_template(template, analysis)
+            dockerfile = self._customize_template(template, analysis, system_deps)
             
-            # ✅ PHASE 1.1: Progress - Dockerfile complete WITH flush
+            # ✅ PHASE 1.3: Progress - Dockerfile complete WITH flush
             if progress_callback:
                 await progress_callback("✅ Dockerfile ready with optimizations")
                 await asyncio.sleep(0)  # ✅ Force event loop flush
@@ -273,8 +339,8 @@ CMD ["sh", "-c", "serve -s static -l $PORT"]
         
         return result
     
-    def _customize_template(self, template: str, analysis: Dict) -> str:
-        """Customize template with project-specific values - ROBUST"""
+    def _customize_template(self, template: str, analysis: Dict, system_deps: list = None) -> str:
+        """Customize template with project-specific values and AI-resolved dependencies"""
         
         # Sanitize entry point - remove extensions and validate
         entry_point = analysis.get('entry_point', 'app')
@@ -289,9 +355,14 @@ CMD ["sh", "-c", "serve -s static -l $PORT"]
         
         # Clean entry point name
         entry_point = str(entry_point).strip()
+        
+        # ✅ PYTHON FIX: Replace/Convert paths to modules (app/main -> app.main)
+        if 'python' in template.lower():
+            entry_point = entry_point.replace('/', '.')
+            
         entry_point = entry_point.replace('.py', '').replace('.js', '').replace('.ts', '')
         
-        # Ensure valid identifier (no spaces, special chars except underscore/hyphen)
+        # Ensure valid identifier (no spaces, special chars except underscore/hyphen/dot)
         entry_point = ''.join(c for c in entry_point if c.isalnum() or c in '_-.')
         
         if not entry_point:
@@ -301,7 +372,94 @@ CMD ["sh", "-c", "serve -s static -l $PORT"]
         build_folder = analysis.get('build_output', 'dist')
         customized = template.replace('{build_output}', build_folder)
         
+        # ✅ AI-DRIVEN SYSTEM DEPENDENCY INJECTION
+        if system_deps:
+            print(f"[DockerExpert] 💉 Injecting AI-resolved system dependencies: {system_deps}")
+            packages = " \\\n    ".join(system_deps)
+            install_cmd = f"""
+RUN apt-get update && apt-get install -y \\
+    {packages} \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+            # Insert intelligently based on template type
+            # Insert intelligently based on template type
+            if "python" in template.lower() and "slim" in template.lower():
+                # ✅ ROBUST INJECTION: Target the runtime stage explicitly
+                # We replace the standalone "FROM ...-slim" line (checking for newline to avoid AS builder)
+                target = "FROM python:3.11-slim\n"
+                if target in customized:
+                    print("[DockerExpert] 💉 Injected dependencies into Runtime Stage")
+                    customized = customized.replace(target, f"{target}{install_cmd}")
+                elif "FROM python:3.11-slim" in customized:
+                    # Fallback: Just inject after the last occurrence if exact match fails
+                    print("[DockerExpert] ⚠️ Exact runtime match failed, appending to last FROM")
+                    parts = customized.rsplit("FROM python:3.11-slim", 1)
+                    customized = parts[0] + f"FROM python:3.11-slim{install_cmd}" + parts[1]
+
+            elif "node" in template.lower() and "slim" in template.lower():
+                 # Handle Node keys if needed (e.g. canvas requires build-essential)
+                 target = "FROM node:20-slim\n"
+                 if target in customized:
+                     customized = customized.replace(target, f"{target}{install_cmd}")
+                 else:
+                     customized = customized.replace(
+                        "FROM node:20-slim", 
+                        f"FROM node:20-slim{install_cmd}"
+                     )
+
         return customized.replace('{entry_point}', entry_point)
+
+    async def _resolve_system_dependencies(self, python_deps: list) -> list:
+        """Use Gemini to identify required system packages (apt-get)"""
+        try:
+            deps_str = ", ".join(str(d) for d in python_deps)
+            prompt = f"""
+Analyze these Python dependencies for a Debian Slim container:
+{deps_str}
+
+Identify which ones require system-level (apt-get) packages to function.
+For example: 'opencv' -> 'libgl1', 'psycopg2' -> 'libpq-dev', 'weasyprint' -> 'libpango-1.0-0'.
+
+Return a JSON list of package names ONLY. Example: ["libgl1", "libglib2.0-0"].
+If none require system deps, return empty list [].
+Return ONLY valid JSON.
+"""
+            # ✅ TIMEOUT FIX: Don't hang forever if AI is slow
+            response = await asyncio.wait_for(
+                self.model.generate_content_async(prompt),
+                timeout=10.0
+            )
+            
+            import json
+            text = response.text.replace('```json', '').replace('```', '').strip()
+            ai_deps = json.loads(text)
+            
+            # ✅ DETERMINISTIC FALLBACK: Ensure critical libs are never missed
+            print(f"[DockerExpert] AI suggested: {ai_deps}")
+            final_deps = set(ai_deps)
+            
+            # Common complex packages that AI sometimes misses
+            deps_str_lower = [str(d).lower() for d in python_deps]
+            
+            if any('opencv' in d and 'headless' not in d for d in deps_str_lower):
+                print("[DockerExpert] 🛡️ Detected opencv-python: Forcing libgl1 injection")
+                final_deps.add('libgl1')
+                final_deps.add('libglib2.0-0')
+            
+            return list(final_deps)
+
+        except asyncio.TimeoutError:
+            print("[DockerExpert] ⚠️ AI Dependency Resolution timed out. Using fallbacks.")
+            # Fallback logic for timeout
+            deps_str_lower = [str(d).lower() for d in python_deps]
+            fallback = []
+            if any('opencv' in d and 'headless' not in d for d in deps_str_lower):
+                 fallback.extend(['libgl1', 'libglib2.0-0'])
+            return fallback
+
+        except Exception as e:
+            print(f"[DockerExpert] ⚠️ Failed to resolve system deps: {e}")
+            return []
     
     def _estimate_image_size(self, framework_key: str) -> str:
         """Estimate final image size"""

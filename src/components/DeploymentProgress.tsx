@@ -40,12 +40,27 @@ export const DeploymentProgress = ({ messages, isTyping, deploymentUrl }: Deploy
     m.content.includes('Analysis Service')
   );
 
-  // ✅ ROBUST CHECK: Check for structured success metadata OR string match
-  const successMsg = messages.find(m => m.metadata?.type === 'deployment_complete' || m.content.includes('Deployment Successful') || m.content.includes('Deployment Complete'));
+  // ✅ FAANG-LEVEL: Robust success detection for confetti trigger
+  // Check multiple indicators to ensure celebration fires
+  const successMsg = messages.find(m =>
+    m.metadata?.type === 'deployment_complete' ||
+    m.content.includes('Deployment Successful') ||
+    m.content.includes('Deployment Complete') ||
+    m.content.includes('[SUCCESS]') ||  // Common success prefix
+    m.content.includes('🎉') ||  // Celebration emoji
+    m.content.includes('is live') ||  // Common success phrase
+    m.content.includes('.run.app') ||  // Cloud Run URL in content
+    m.metadata?.url ||  // If metadata has URL, it's successful
+    (m as any).deploymentUrl  // Direct URL means success
+  );
   const isComplete = !!successMsg;
-  const finalUrl = deploymentUrl || successMsg?.deploymentUrl || successMsg?.metadata?.url;
+  const finalUrl = deploymentUrl || (successMsg as any)?.deploymentUrl || successMsg?.metadata?.url;
 
-  const hasError = messages.some(m => m.content.includes('Error') || m.metadata?.error);
+  // ✅ FIXED: Don't flag errors for completed deployments
+  const hasError = messages.some(m =>
+    (m.content.toLowerCase().includes('error') || m.metadata?.error) &&
+    !m.content.includes('🎉')  // Exclude success messages that mention error handling
+  ) && !isComplete;
 
   // Auto-scroll logs
   useEffect(() => {
@@ -56,10 +71,11 @@ export const DeploymentProgress = ({ messages, isTyping, deploymentUrl }: Deploy
 
   // Trigger confetti and notifications on success
   useEffect(() => {
-    if (isComplete && finalUrl) {
+    // ✅ CELEBRATION FIX: Trigger confetti on success, URL is optional
+    if (isComplete) {
       const duration = 3 * 1000;
       const animationEnd = Date.now() + duration;
-      const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+      const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
 
       const randomInRange = (min: number, max: number) => Math.random() * (max - min) + min;
 
@@ -75,8 +91,17 @@ export const DeploymentProgress = ({ messages, isTyping, deploymentUrl }: Deploy
         confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
       }, 250);
 
-      // Smart Notifications
-      if ("Notification" in window) {
+      // Audio Feedack (Apple-style Success Chime)
+      try {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3');
+        audio.volume = 0.4;
+        audio.play().catch(e => console.log('Audio play blocked by browser:', e));
+      } catch (e) {
+        console.log('Audio initialization failed:', e);
+      }
+
+      // Smart Notifications (still require URL for meaningful message)
+      if (finalUrl && "Notification" in window) {
         if (Notification.permission === "granted") {
           new Notification("DevGem: Deployment Successful! 🚀", { body: `Your app is live at ${finalUrl}` });
         } else if (Notification.permission !== "denied") {

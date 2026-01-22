@@ -27,8 +27,10 @@ import subprocess
 from google.cloud.devtools import cloudbuild_v1
 from google.cloud import run_v2
 from google.cloud import logging as cloud_logging
+from google.cloud import secretmanager
 from google.api_core import retry
 from google.api_core import exceptions as google_exceptions
+from google.protobuf import field_mask_pb2  # For update_mask in Cloud Run updates
 
 # Configure structured logging
 # Configure structured logging with safe filter
@@ -111,10 +113,22 @@ class GCloudService:
             'deploy_times': []
         }
         
+        if not self.project_id:
+            print("[GCloudService] ⚠️ WARNING: No project_id provided or found in environment. Defaulting to 'devgem-i4i' for safety.")
+            self.project_id = "devgem-i4i"
+        
+        print(f"[DEBUG] GCloudService self.project_id: '{self.project_id}' (Type: {type(self.project_id)})")
+            
         # Initialize Google Cloud API clients (no CLI required!)
-        self.build_client = cloudbuild_v1.CloudBuildClient()
-        self.run_client = run_v2.ServicesClient()
+        # ✅ FAANG FIX: Explicitly pass project context where supported to prevent desync
+        # NOTE: client_options with quota_project_id is a robust way to ensure project isolation
+        from google.api_core.client_options import ClientOptions
+        client_options = ClientOptions(quota_project_id=self.project_id)
+        
+        self.build_client = cloudbuild_v1.CloudBuildClient(client_options=client_options)
+        self.run_client = run_v2.ServicesClient(client_options=client_options)
         self.logging_client = cloud_logging.Client(project=self.project_id)
+        self.secret_manager_client = secretmanager.SecretManagerServiceClient(client_options=client_options)
         
         # Configure logger with correlation ID
         self.logger = logging.LoggerAdapter(
@@ -450,6 +464,9 @@ class GCloudService:
         try:
             project_path_obj = Path(project_path).resolve()
             
+            # ✅ Reset monotonic progress tracker for new build
+            self._max_build_progress = 0
+            
             self.logger.info(f"Starting Cloud Build API for: {image_name}")
             self.logger.info(f"Project path: {project_path_obj}")
             
@@ -511,15 +528,31 @@ class GCloudService:
                 else:
                     clone_args.extend([repo_url, '/workspace/repo'])
                 
-                # ✅ HEALING ENHANCEMENT: Read ALL critical architecture files from local path
-                # We upload these to Cloud Build to ensure it sees our local "Healing"
+                # ✅ LANGUAGE-AWARE HEALING: Only upload files relevant to the detected language
+                # This prevents NPM errors when deploying Python/Go projects
+                language = (build_config.get('language', 'unknown') if build_config else 'unknown').lower()
+                
+                # Define language-specific files to heal
+                language_files = {
+                    'python': ['Dockerfile', '.dockerignore', 'requirements.txt', 'runtime.txt'],
+                    'nodejs': ['Dockerfile', '.dockerignore', 'package.json', 'package-lock.json'],
+                    'node': ['Dockerfile', '.dockerignore', 'package.json', 'package-lock.json'],
+                    'golang': ['Dockerfile', '.dockerignore', 'go.mod', 'go.sum'],
+                    'go': ['Dockerfile', '.dockerignore', 'go.mod', 'go.sum'],
+                }
+                
+                # Get files for this language, fallback to just Dockerfile if unknown
+                files_to_heal = language_files.get(language, ['Dockerfile', '.dockerignore'])
+                self.logger.info(f"[HEALING] Language: {language}, Files to heal: {files_to_heal}")
+                
                 arch_files = {}
-                for filename in ['Dockerfile', '.dockerignore', 'requirements.txt', 'package.json', 'go.mod', 'go.sum', 'runtime.txt']:
+                for filename in files_to_heal:
                     file_path = project_path_obj / filename
                     if file_path.exists():
                         try:
                             with open(file_path, 'rb') as f:
                                 arch_files[filename] = base64.b64encode(f.read().replace(b'\r\n', b'\n')).decode('utf-8')
+                            self.logger.info(f"[HEALING] Including: {filename}")
                         except Exception as e:
                             print(f"[GCloudService] Warning: Could not read {filename} for healing: {e}")
 
@@ -724,7 +757,7 @@ class GCloudService:
                 ]:
                     break
                 
-                # GRANULAR STEP-BASED PROGRESS WITH TIME NUDGE
+                # GRANULAR STEP-BASED PROGRESS WITH MONOTONIC GUARANTEE
                 active_msg = "Processing build..."
                 if current_build.steps:
                     completed_steps = sum(1 for s in current_build.steps if s.status == cloudbuild_v1.Build.Status.SUCCESS)
@@ -732,11 +765,18 @@ class GCloudService:
                     total_steps = len(current_build.steps)
                     
                     # Base progress: 15% to 85%
-                    progress = 15 + (completed_steps / total_steps * 70) if total_steps > 0 else 15
+                    base_progress = 15 + (completed_steps / total_steps * 70) if total_steps > 0 else 15
                     
-                    # Add a time-based nudge (up to 5% per step) to show "life"
-                    step_elapsed = (poll_count % 12) * 0.4 # Nudges forward over 1 min
-                    progress = min(progress + step_elapsed, 85)
+                    # ✅ MONOTONIC FIX: Use cumulative nudge (no modulo reset!)
+                    # Adds small increment over time, capped at 4% max nudge
+                    time_nudge = min(poll_count * 0.3, 4)  
+                    candidate_progress = min(base_progress + time_nudge, 85)
+                    
+                    # ✅ CRITICAL: Never go backwards - track max progress
+                    if not hasattr(self, '_max_build_progress'):
+                        self._max_build_progress = 0
+                    progress = max(candidate_progress, self._max_build_progress)
+                    self._max_build_progress = progress
                     
                     if working_step:
                         step_name = working_step.name.split('/')[-1]
@@ -810,25 +850,35 @@ class GCloudService:
             if gcs_log_url:
                 self.logger.info(f"[DEBUG] Construction GCS log URL: {gcs_log_url}")
                 try:
-                    # Try to fetch the last 50 lines of the build log
-                    from google.cloud import storage
-                    storage_client = storage.Client(project=self.project_id)
+                    # ✅ ASYNC FIX: Run blocking GCS operations in thread
+                    def fetch_gcs_logs():
+                        from google.cloud import storage
+                        storage_client = storage.Client(project=self.project_id)
+                        
+                        # Parse GCS URL
+                        if gcs_log_url.startswith('gs://'):
+                            parts = gcs_log_url[5:].split('/', 1)
+                            if len(parts) == 2:
+                                bucket_name, blob_name = parts
+                                bucket = storage_client.bucket(bucket_name)
+                                blob = bucket.blob(blob_name)
+                                
+                                if blob.exists():
+                                    content = blob.download_as_text()
+                                    lines = content.strip().split('\n')
+                                    # Get last 200 lines
+                                    last_lines = lines[-200:] if len(lines) > 200 else lines
+                                    return '\n'.join(last_lines)
+                        return ""
+
+                    log_excerpt = await asyncio.to_thread(fetch_gcs_logs)
                     
-                    # Parse GCS URL
-                    if gcs_log_url.startswith('gs://'):
-                        parts = gcs_log_url[5:].split('/', 1)
-                        if len(parts) == 2:
-                            bucket_name, blob_name = parts
-                            bucket = storage_client.bucket(bucket_name)
-                            blob = bucket.blob(blob_name)
-                            
-                            if blob.exists():
-                                content = blob.download_as_text()
-                                lines = content.strip().split('\n')
-                                # Get last 30 lines for context
-                                last_lines = lines[-30:] if len(lines) > 30 else lines
-                                log_excerpt = '\n'.join(last_lines)
-                                self.logger.info(f"[DEBUG] Fetched {len(lines)} log lines, showing last 30")
+                    if log_excerpt:
+                        self.logger.info(f"[DEBUG] Fetched log excerpt ({len(log_excerpt)} chars)")
+                        # Print context to terminal
+                        for line in log_excerpt.split('\n'):
+                             self.logger.info(f"[BUILD LOG] {line}")
+                             
                 except Exception as log_err:
                     self.logger.warning(f"Could not fetch build logs from {gcs_log_url}: {log_err}")
             
@@ -873,8 +923,8 @@ class GCloudService:
             if error_details:
                 full_error += f"\n\nFailed Step: {'; '.join(error_details)}"
             if log_excerpt:
-                # Show last 15 lines in the UI
-                excerpt_lines = log_excerpt.split('\n')[-15:]
+                # ✅ Show last 50 lines in the UI (increased from 15)
+                excerpt_lines = log_excerpt.split('\n')[-50:]
                 full_error += f"\n\nLog Tail:\n```\n{chr(10).join(excerpt_lines)}\n```"
             if logs_url:
                 full_error += f"\n\nFull Logs: {logs_url}"
@@ -897,6 +947,89 @@ class GCloudService:
                 'error': f'Build failed: {str(e)}'
             }
     
+    # ============================================================================
+    # SECRET MANAGER INTEGRATION (FAANG-Level Security)
+    # ============================================================================
+
+    async def create_or_update_secret(self, secret_id: str, payload: str) -> bool:
+        """
+        Create or update a secret in Google Secret Manager.
+        
+        Args:
+            secret_id: The ID of the secret (e.g., 'devgem-repo-env')
+            payload: The content to store
+            
+        Returns:
+            bool: True if successful
+        """
+        try:
+            client = self.secret_manager_client
+            parent = f"projects/{self.project_id}"
+            
+            print(f"[SecretManager] 🔒 Attempting create/update in project: {self.project_id} (Internal ID: {secret_id})")
+            
+            # Create secret if it doesn't exist
+            try:
+                client.create_secret(
+                    request={
+                        "parent": parent,
+                        "secret_id": secret_id,
+                        "secret": {"replication": {"automatic": {}}},
+                    }
+                )
+                self.logger.info(f"[SecretManager] Created new secret: {secret_id}")
+            except google_exceptions.AlreadyExists:
+                # self.logger.info(f"[SecretManager] Secret already exists: {secret_id}")
+                pass
+            except Exception as e:
+                self.logger.error(f"[SecretManager] Error creating secret: {e}")
+                return False
+
+            # Add secret version
+            parent_secret = f"{parent}/secrets/{secret_id}"
+            # Ensure payload is robust string
+            if not isinstance(payload, str):
+                payload = json.dumps(payload)
+                
+            payload_bytes = payload.encode("UTF-8")
+            
+            client.add_secret_version(
+                request={
+                    "parent": parent_secret,
+                    "payload": {"data": payload_bytes},
+                }
+            )
+            self.logger.info(f"[SecretManager] Added new version to secret: {secret_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"[SecretManager] Critical failure in Secret Manager: {e}")
+            return False
+
+    async def access_secret(self, secret_id: str) -> Optional[str]:
+        """
+        Access the latest version of a secret from Secret Manager.
+        
+        Returns:
+            str: The payload content (usually JSON string), or None if failed
+        """
+        try:
+            client = self.secret_manager_client
+            name = f"projects/{self.project_id}/secrets/{secret_id}/versions/latest"
+            
+            print(f"[SecretManager] 🔍 Looking for secret: {name} in project: {self.project_id}")
+            
+            response = client.access_secret_version(request={"name": name})
+            payload = response.payload.data.decode("UTF-8")
+            return payload
+            
+        except google_exceptions.NotFound:
+            self.logger.warning(f"[SecretManager] Secret not found: {secret_id}")
+            return None
+        except Exception as e:
+            self.logger.error(f"[SecretManager] Error accessing secret: {e}")
+            return None
+
     async def deploy_to_cloudrun(
         self,
         image_tag: str,
@@ -904,7 +1037,10 @@ class GCloudService:
         env_vars: Optional[Dict[str, str]] = None,
         secrets: Optional[Dict[str, str]] = None,
         progress_callback: Optional[Callable] = None,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        health_check_path: str = '/',
+        memory_limit: str = '512Mi',
+        cpu_limit: str = '1'
     ) -> Dict:
         """
         Deploy image to Cloud Run using API (no CLI required!)
@@ -920,8 +1056,13 @@ class GCloudService:
         try:
             progress = 0 # Initialize scope safety
             # Generate unique service name for user isolation
-            unique_service_name = f"{user_id}-{service_name}" if user_id else service_name
-            unique_service_name = unique_service_name.lower().replace('_', '-')[:63]  # Cloud Run limit
+            prefix = f"{user_id}-" if user_id else ""
+            remaining_len = 48 - len(prefix) # Ensure total < 50
+            
+            clean_service_name = service_name.lower().replace('_', '-')
+            truncated_name = clean_service_name[:remaining_len].strip('-')
+            
+            unique_service_name = f"{prefix}{truncated_name}"
             
             self.logger.info(f"Deploying service: {unique_service_name}")
             
@@ -963,22 +1104,27 @@ class GCloudService:
             
             # Add environment variables
             if env_vars:
+                self.logger.info(f"[DEBUG] Adding {len(env_vars)} env vars to container: {list(env_vars.keys())}")
                 # ✅ CRITICAL FIX: Filter out PORT (Reserved by Cloud Run)
                 container.env = [
-                    run_v2.EnvVar(name=k, value=v)
+                    run_v2.EnvVar(name=str(k), value=str(v))
                     for k, v in env_vars.items()
                     if k != 'PORT' 
                 ]
+                self.logger.info(f"[DEBUG] Container env set with {len(container.env)} variables")
+            else:
+                self.logger.warning("[DEBUG] No env_vars provided to deploy_to_cloudrun")
             
             # Resource limits
             container.resources = run_v2.ResourceRequirements(
-                limits={'cpu': '1', 'memory': '512Mi'}
+                limits={'cpu': str(cpu_limit), 'memory': str(memory_limit)}
             )
             
             # Startup probe - CRITICAL FIX: Switched to HTTP (Generic Container Standard)
             # Logs proved the container is serving HTTP 200, so HTTP probe is the source of truth.
+            self.logger.info(f"Setting startup probe to: {health_check_path} (port: {detected_port})")
             container.startup_probe = run_v2.Probe(
-                http_get=run_v2.HTTPGetAction(path="/", port=detected_port),
+                http_get=run_v2.HTTPGetAction(path=health_check_path, port=detected_port),
                 initial_delay_seconds=0,
                 timeout_seconds=5,   # Fast timeout for HTTP
                 period_seconds=2,    # Fast polling
@@ -1026,9 +1172,22 @@ class GCloudService:
                 # Service exists, update it
                 self.logger.info(f"Updating existing service: {unique_service_name}")
                 
+                # CRITICAL FIX: Must specify update_mask to ensure env vars are applied!
+                # Without update_mask, Cloud Run API may NOT update container environment variables.
+                # We update the entire template to ensure all changes are applied.
+                update_mask = field_mask_pb2.FieldMask(paths=[
+                    'template.containers',  # This includes image, env vars, resources, probes
+                    'template.scaling',
+                    'template.timeout',
+                    'labels'
+                ])
+                
+                self.logger.info(f"[DEBUG] Using update_mask: {update_mask.paths}")
+                
                 operation = await asyncio.to_thread(
                     self.run_client.update_service,
-                    service=service
+                    service=service,
+                    update_mask=update_mask
                 )
                 
             except google_exceptions.NotFound:

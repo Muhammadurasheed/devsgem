@@ -3,6 +3,8 @@ DevGem Backend API
 FastAPI server optimized for Google Cloud Run
 بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
 """
+import traceback
+
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +17,8 @@ from datetime import datetime
 import json
 import uuid
 import traceback
+import hashlib
+import re
 
 from agents.orchestrator import OrchestratorAgent
 from services.deployment_service import deployment_service
@@ -762,6 +766,8 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                 break
             
             msg_type = data.get('type')
+            if msg_type != 'pong': # Reduce noise
+                 print(f"[WebSocket] [DEBUG] Received message type: {msg_type}, Keys: {list(data.keys())}")
             
             # Handle pong response
             if msg_type == 'pong':
@@ -783,61 +789,206 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                     }
                 
                 user_orchestrator.project_context['env_vars'] = session_env_vars
-                print(f"[WebSocket] [SUCCESS] Env vars stored: {count} variables")
                 
-                # Format list
-                env_list = '\n'.join([
-                    f'• {key} {"(Secret 🔒)" if val["isSecret"] else ""}'
-                    for key, val in session_env_vars.items()
-                ])
+                # 
+                # FAANG-LEVEL FIX: Hybrid Persistence (Cloud + Local Fallback)
                 
-                if count == 0:
-                    confirmation_msg = f"""[INFO] No environment variables provided. That's perfectly fine for static sites or projects using external backends like Firebase!
+              
+                try:
+                    # ✅ FAANG FIX: Prioritize repo_url from message payload (Bridge Session Gaps)
+                    repo_url = data.get('repo_url') or user_orchestrator.project_context.get('repo_url')
+                    
+                    if repo_url:
+                        # Auto-rehydrate orchestrator context if missing
+                        if not user_orchestrator.project_context.get('repo_url'):
+                            print(f"[WebSocket] [REHYDRATION] 🧲 Auto-rehydrating repo_url into orchestrator context: {repo_url}")
+                            user_orchestrator.project_context['repo_url'] = repo_url
+                        
+                        # 1. Parse details
+                        parts = repo_url.strip('/').split('/')
+                        if len(parts) >= 2:
+                            user_name = parts[-2]
+                            repo_name = parts[-1].replace('.git', '')
+                        else:
+                            user_name = 'default'
+                            repo_name = parts[-1].replace('.git', '')
 
-**Status:** Container configuration optimized for production.
+                        # 2. Strategy A: Google Secret Manager (Primary)
+                        safe_user = re.sub(r'[^a-zA-Z0-9]', '', user_name).lower()
+                        safe_repo = re.sub(r'[^a-zA-Z0-9-]', '-', repo_name).lower()
+                        safe_repo = re.sub(r'-+', '-', safe_repo).strip('-')
+                        secret_id = f"devgem-{safe_user}-{safe_repo}-env"
+                        
+                        try:
+                            print(f"[WebSocket] [GSM] Attempting to save to Secret Manager: {secret_id}")
+                            success = await user_orchestrator.gcloud_service.create_or_update_secret(secret_id, session_env_vars)
+                            if success:
+                                print(f"[WebSocket] [GSM] ✅ Cloud save success.")
+                            else:
+                                print(f"[WebSocket] [GSM] ⚠️ Cloud save returned failure.")
+                        except Exception as gsm_e:
+                            print(f"[WebSocket] [GSM] ❌ Cloud save failed: {gsm_e}")
 
-**Next Step:** Click the button below to launch your app!"""
-                else:
-                    confirmation_msg = f"""[SUCCESS] {count} variables configured successfully!
+                        # 3. Strategy B: Global Local Store (Backup)
+                        # Saves to ~/.gemini/antigravity/env_store/<repo_hash>.json
+                        try:
+                            repo_hash = hashlib.md5(repo_url.encode()).hexdigest()
+                            home = os.path.expanduser("~")
+                            store_dir = os.path.join(home, ".gemini", "antigravity", "env_store")
+                            os.makedirs(store_dir, exist_ok=True)
+                            global_env_file = os.path.join(store_dir, f"{repo_hash}.json")
+                            with open(global_env_file, 'w') as f:
+                                json.dump(session_env_vars, f, indent=2)
+                            print(f"[WebSocket] [BACKUP] ✅ Saved to local global store: {repo_hash}.json")
+                        except Exception as file_e:
+                            print(f"[WebSocket] [BACKUP] ❌ Local store failed: {file_e}")
 
-**Uploaded:**
-{env_list}
+                        # 4. Strategy C: Project-Local Store (Priority for deployment)
+                        # Saves to <project_path>/.devgem_env.json
+                        project_path = user_orchestrator.project_context.get('project_path')
+                        if project_path and os.path.exists(project_path):
+                            try:
+                                project_env_file = os.path.join(project_path, '.devgem_env.json')
+                                with open(project_env_file, 'w') as f:
+                                    json.dump(session_env_vars, f, indent=2)
+                                print(f"[WebSocket] [PROJECT] ✅ Saved to project local store: {project_env_file}")
+                            except Exception as proj_e:
+                                print(f"[WebSocket] [PROJECT] ❌ Project store failed: {proj_e}")
 
-**Next Step:** You are ready for takeoff! Say 'deploy' or click the launch button to go live."""
+                    else:
+                        print(f"[WebSocket] [PERSISTENCE] Warning: No repo_url found.")
+
+                except Exception as e:
+                    print(f"[WebSocket] [PERSISTENCE] Critical error: {e}")
+                    traceback.print_exc()
                 
+                # ✅ CRITICAL FIX: Force Save to Redis IMMEDIATELY
+                # This prevents "Amnesia" if the user disconnects/reconnects right after upload
+                try:
+                    await session_store.save_session(session_id, user_orchestrator.get_state())
+                    print(f"[WebSocket] [PERSISTENCE] 💾 Saved session state to Redis after Env Var upload for {session_id}")
+                except Exception as save_e:
+                    print(f"[WebSocket] [ERROR] Failed to save state to Redis: {save_e}")
+
+
+                print(f"[WebSocket] [SUCCESS] Env vars processing complete. Count: {count}")
+                
+                # ===========================================================================
+                # ✅ FAANG-LEVEL FIX: Auto-proceed to deployment after env vars upload
+                # Instead of waiting for user to say "deploy", directly trigger deployment
+                # This provides the seamless UX expected after .env configuration
+                # ===========================================================================
+                
+                # Send progress update to let user know we're proceeding
                 await safe_send_json(session_id, {
                     'type': 'message',
                     'data': {
-                        'content': confirmation_msg,
-                        'intent': 'env_vars_confirmed',
-                        'actions': [
-                            {
-                                'id': 'deploy-final',
-                                'label': '🚀 LAUNCH DEPLOYMENT',
-                                'type': 'button',
-                                'variant': 'primary',
-                                'action': 'deploy_to_cloudrun',
-                                'intent': 'deploy'
-                            },
-                            {
-                                'id': 'reset-context',
-                                'label': '🧹 RESET SESSION',
-                                'type': 'button',
-                                'variant': 'ghost',
-                                'action': 'reset',
-                                'intent': 'reset'
-                            }
-                        ],
-                        'metadata': {
-                            'env_vars_count': count,
-                            'secrets_count': sum(1 for v in session_env_vars.values() if v['isSecret'])
-                        }
+                        'content': f"✅ **{count} environment variables configured!** Proceeding to deployment...",
+                        'metadata': {'type': 'env_vars_confirmed', 'env_vars_count': count}
                     },
                     'timestamp': datetime.now().isoformat()
                 })
-                # ✅ REMOVED AUTO-RESUME: Give the user manual control to prevent loops
-                print(f"[WebSocket] 🛑 Environment variables received for {session_id}. Waiting for manual launch.")
-                continue
+                
+                # Create progress notifier for deployment
+                existing_deployment = getattr(user_orchestrator, 'active_deployment', None)
+                if existing_deployment and existing_deployment.get('deploymentId'):
+                    deployment_id = existing_deployment['deploymentId']
+                    print(f"[WebSocket] ♻️ Resuming deployment: {deployment_id}")
+                    
+                    # Send deployment_resumed to preserve frontend state
+                    await safe_send_json(session_id, {
+                        "type": "deployment_resumed",
+                        "deployment_id": deployment_id,
+                        "resume_stage": "container_build",
+                        "resume_progress": 25,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                else:
+                    deployment_id = f"deploy-{uuid.uuid4().hex[:8]}"
+                    print(f"[WebSocket] ✨ Starting fresh deployment: {deployment_id}")
+                    
+                    await safe_send_json(session_id, {
+                        "type": "deployment_started",
+                        "deployment_id": deployment_id,
+                        "message": "[DEPLOY] Starting deployment after env configuration...",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                
+                progress_notifier = ProgressNotifier(
+                    session_id,
+                    deployment_id,
+                    safe_send_json
+                )
+                
+                try:
+                    # ✅ DIRECT DEPLOY: Bypass Gemini and go straight to Cloud Run
+                    # FAANG Architecture: Explicit Data Passing (No Side Effects)
+                    flat_env_vars = {
+                       k: v.get('value', '') if isinstance(v, dict) else v 
+                       for k, v in session_env_vars.items()
+                    }
+                    
+                    print(f"[DEBUG APP] Calling _direct_deploy on Orchestrator ID: {id(user_orchestrator)}")
+                    print(f"[DEBUG APP] Explicitly passing {len(flat_env_vars)} env vars")
+                    
+                    # [SUCCESS] PHASE 10 FIX: Create progress_callback wrapper to forward to DPMP
+                    # This ensures all stages (Security Scan, Container Build, Cloud Deployment) are visible
+                    async def progress_callback_wrapper(data):
+                        """Forward progress updates to frontend via WebSocket"""
+                        try:
+                            if isinstance(data, dict):
+                                # Extract message from various formats
+                                message = data.get('message') or data.get('data', {}).get('content', '')
+                                stage = data.get('stage', 'deployment')
+                                progress = data.get('progress', 0)
+                                
+                                if message:
+                                    # ✅ UX FIX: Send as 'deployment_progress' (FLAT structure)
+                                    await safe_send_json(session_id, {
+                                        'type': 'deployment_progress', 
+                                        'stage': stage,
+                                        'status': 'in-progress',
+                                        'message': message,
+                                        'progress': progress,
+                                        'metadata': {
+                                            'type': 'progress_update',
+                                            'stage': stage,
+                                            'timestamp': datetime.now().isoformat()
+                                        }
+                                    })
+                        except Exception as e:
+                            print(f"[WebSocket] [WARNING] Progress callback error: {e}")
+                    response = await user_orchestrator._direct_deploy(
+                        progress_notifier=progress_notifier,
+                        progress_callback=progress_callback_wrapper,  # [SUCCESS] Now not None!
+                        ignore_env_check=True,  # Bypass prompt
+                        explicit_env_vars=flat_env_vars # ✅ Override with guaranteed data
+                    )
+                    
+                    # Send response
+                    await safe_send_json(session_id, {
+                        'type': 'message',
+                        'data': response,
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    
+                    # Save state
+                    await session_store.save_session(
+                        session_id,
+                        user_orchestrator.get_state()
+                    )
+                    
+                except Exception as deploy_error:
+                    print(f"[WebSocket] [ERROR] Auto-deploy failed: {deploy_error}")
+                    traceback.print_exc()
+                    
+                    await safe_send_json(session_id, {
+                        'type': 'error',
+                        'message': f'Deployment error: {str(deploy_error)}',
+                        'code': 'DEPLOY_ERROR',
+                        'timestamp': datetime.now().isoformat()
+                    })
+                
                 continue
             
             # Handle chat messages
@@ -1243,8 +1394,9 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     
     uvicorn.run(
-        app,
+        "app:app", # Must use import string for reload to work
         host="0.0.0.0",
         port=port,
-        log_level="info"
+        log_level="info",
+        reload=True # ✅ Enable auto-reload for FAANG-speed iteration
     )

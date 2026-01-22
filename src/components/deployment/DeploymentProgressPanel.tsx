@@ -52,6 +52,20 @@ export function DeploymentProgressPanel({
     );
   }
 
+  // Trigger Confetti on Success
+  useEffect(() => {
+    if (progress.status === 'success') {
+      import('canvas-confetti').then((confetti) => {
+        confetti.default({
+          particleCount: 200,
+          spread: 80,
+          origin: { y: 0.6 },
+          colors: ['#22c55e', '#a855f7', '#3b82f6', '#f59e0b'] // Green, Purple, Blue, Amber
+        });
+      });
+    }
+  }, [progress.status]);
+
   // Show success panel
   if (progress.status === 'success') {
     return (

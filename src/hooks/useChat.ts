@@ -108,11 +108,20 @@ export const useChat = (): UseChatReturn => {
       return;
     }
 
+    // ✅ FAANG-LEVEL FIX: Automatically inject repo_url from context if available
+    // This bridges the gap between session resets and backend orientation
+    const repoUrl = messages.find(m => m.content.includes('github.com'))?.content.match(/https:\/\/github\.com\/[^\s)\]]+/)?.[0] || '';
+    
+    // ✅ FAANG-LEVEL FIX: Send structured message directly, NOT wrapped in 'message' type
+    // This ensures the backend handles it as a specific event (e.g. env_vars_uploaded)
+    // instead of treating it as chat text which causes LLM hallucinations.
     wsSendMessage({
-      type: 'message' as any,
-      message: JSON.stringify({ type, ...data }),
+      type: type as any, 
+      ...data,
+      // Deterministic propagation
+      repo_url: data.repo_url || repoUrl 
     } as any);
-  }, [isConnected, wsSendMessage]);
+  }, [isConnected, wsSendMessage, messages]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);

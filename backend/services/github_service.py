@@ -145,6 +145,13 @@ class GitHubService:
                 # Try with 'master' branch if 'main' fails
                 if branch == 'main':
                     print(f"[GitHubService] Retrying with 'master' branch")
+                    
+                    # ✅ FAANG-Level Robustness: Clean up partial directory from failed 'main' attempt
+                    # Git will fail if the directory exists (even if empty)
+                    if local_path.exists():
+                        print(f"[GitHubService] Clearing ephemeral directory {local_path.name} before retry...")
+                        self.cleanup_workspace(str(local_path))
+                        
                     result = subprocess.run(
                         ['git', 'clone', '--depth', '1', '--branch', 'master', repo_url, str(local_path)],
                         capture_output=True,

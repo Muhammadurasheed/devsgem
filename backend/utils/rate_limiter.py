@@ -1,5 +1,5 @@
 """
-FAANG-Level Distributed Rate Limiter for Gemini API
+Distributed Rate Limiter for Gemini API
 ====================================================
 Production-grade implementation with:
 - Upstash Redis for distributed state

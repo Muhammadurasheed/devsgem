@@ -34,6 +34,7 @@ export type ServerMessageType =
   | 'message'             // AI response message
   | 'analysis'            // Code analysis result
   | 'deployment_started'  // Deployment process started
+  | 'deployment_resumed'  // Deployment resumed after .env config
   | 'deployment_progress' // Real-time deployment progress
   | 'deployment_update'   // Deployment progress update (legacy)
   | 'deployment_complete' // Deployment finished
@@ -152,6 +153,15 @@ export interface ServerDeploymentProgress {
   timestamp: string;
 }
 
+// ✅ NEW: Deployment resumed message (after .env config)
+export interface ServerDeploymentResumed {
+  type: 'deployment_resumed';
+  deployment_id: string;
+  resume_stage?: string;
+  resume_progress?: number;
+  timestamp: string;
+}
+
 export interface ServerDeploymentComplete {
   type: 'deployment_complete';
   data: {
@@ -203,6 +213,7 @@ export type ServerMessage =
   | ServerChatMessage
   | ServerAnalysisMessage
   | ServerDeploymentStarted
+  | ServerDeploymentResumed  // ✅ NEW
   | ServerDeploymentProgress
   | ServerDeploymentUpdate
   | ServerDeploymentComplete

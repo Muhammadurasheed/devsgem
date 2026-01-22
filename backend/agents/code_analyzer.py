@@ -411,6 +411,10 @@ Be extremely detailed in your recommendations and warnings based on the technica
   "framework": "express|nestjs|koa|hapi|fastify|flask|django|fastapi|nextjs|nuxtjs|gin|echo|fiber|springboot|rails|laravel|phoenix|strapi|adonis|remix|sveltekit|astro",
   "entry_point": "main file (e.g., app.py, index.js, main.go, src/main.ts)",
   "port": 8080,
+  "health_check_path": "URL path for health checks (e.g., /, /health, /api/ping)",
+  "health_check_type": "http|tcp",
+  "memory_limit": "recommended RAM (e.g., 512Mi, 1Gi, 2Gi)",
+  "cpu_limit": "recommended CPU (e.g., 1, 2)",
   "runtime_version": "e.g., nodejs:18, python:3.9 (infer from engines/config)",
   "dependencies": [
     {{"name": "package-name", "version": "1.0.0"}}
@@ -478,6 +482,10 @@ Return ONLY valid JSON, no markdown or explanations.
             'framework': base_framework,
             'entry_point': None,
             'port': 8080,
+            'health_check_path': '/',
+            'health_check_type': 'http',
+            'memory_limit': '512Mi',
+            'cpu_limit': '1',
             'dependencies': [],
             'database': None,
             'build_tool': None,

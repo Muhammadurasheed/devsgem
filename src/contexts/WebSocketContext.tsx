@@ -275,19 +275,72 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         });
         break;
 
+      // ✅ NEW: Handle deployment resume without resetting state
+      case 'deployment_resumed':
+        setIsTyping(false);
+        hasReceivedProgressRef.current = true;
+        const resumeData = serverMessage as any;
+        console.log('[WebSocket] ✅ Deployment RESUMED, preserving all existing stages');
+
+        setActiveDeployment((prev: any) => {
+          if (!prev) {
+            // No prior state, initialize fresh
+            return {
+              deploymentId: resumeData.deployment_id,
+              stages: DEPLOYMENT_STAGES.map(s => ({ ...s })),
+              currentStage: resumeData.resume_stage || 'env_vars',
+              overallProgress: resumeData.resume_progress || 20,
+              status: 'deploying',
+              startTime: new Date().toISOString()
+            };
+          }
+          // Preserve existing state, just update status
+          return {
+            ...prev,
+            status: 'deploying'
+          };
+        });
+        break;
+
       case 'deployment_started':
         setIsTyping(false);
         hasReceivedProgressRef.current = true;
         const deployStart = serverMessage as any;
         const deploymentStartTime = new Date().toISOString();
-        setActiveDeployment({
-          deploymentId: deployStart.deployment_id,
-          stages: DEPLOYMENT_STAGES.map(s => ({ ...s })),
-          currentStage: 'repo_clone', // ✅ FIXED: Match backend ID
-          overallProgress: 0,
-          status: 'deploying',
-          startTime: deploymentStartTime
+
+        // ✅ FAANG-LEVEL FIX: Preserve ALL accumulated stage details across resumption
+        // The issue was: after .env upload, a new deployment_id was generated
+        // which caused complete state reset. Now we preserve stage details if deployment is active.
+        setActiveDeployment((prev: any) => {
+          // If we have existing progress with completed stages, preserve ALL details
+          const hasExistingProgress = prev && prev.overallProgress > 0;
+          const hasCompletedStages = prev?.stages?.some((s: any) => s.status === 'success' || s.details?.length > 0);
+
+          if (hasExistingProgress || hasCompletedStages) {
+            console.log('[WebSocket] ✅ Resuming deployment, PRESERVING all stage details');
+            console.log('[WebSocket] Existing stages with details:',
+              prev?.stages?.filter((s: any) => s.details?.length > 0).map((s: any) => s.id)
+            );
+            return {
+              ...prev,
+              deploymentId: deployStart.deployment_id, // Update to new ID
+              status: 'deploying',
+              // Keep ALL existing stages with their accumulated details
+            };
+          }
+
+          // Only fully reset for genuinely new deployments (no prior state)
+          console.log('[WebSocket] Starting fresh deployment:', deployStart.deployment_id);
+          return {
+            deploymentId: deployStart.deployment_id,
+            stages: DEPLOYMENT_STAGES.map(s => ({ ...s })),
+            currentStage: deployStart.resume_stage || 'repo_clone',
+            overallProgress: deployStart.resume_progress || 0,
+            status: 'deploying',
+            startTime: deploymentStartTime
+          };
         });
+
         addAssistantMessage({
           content: `Starting deployment to Cloud Run...`,
           metadata: {
@@ -384,20 +437,35 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
       case 'deployment_complete':
         setIsTyping(false);
-        const deployData = (serverMessage as any).data;
-        const isSuccess = deployData?.status === 'success';
+        // ✅ ROBUST: Handle both { data: {...} } and flat payload structures
+        const deployCompleteRaw = serverMessage as any;
+        const deployData = deployCompleteRaw.data || deployCompleteRaw;
+        // ✅ FAANG-LEVEL: Multiple success indicators for reliability
+        const isSuccess = deployData?.status === 'success' ||
+          deployData?.success === true ||
+          (!deployData?.error && deployData?.url);
+        const deployedUrl = deployData?.url || deployData?.deployment_url || deployCompleteRaw?.url;
+
         setActiveDeployment((prev: any) => {
           if (!prev) return prev;
-          return { ...prev, status: isSuccess ? 'success' : 'failed', overallProgress: 100 };
+          // ✅ CRITICAL FIX: Include deploymentUrl for confetti trigger in DeploymentProgress.tsx
+          return {
+            ...prev,
+            status: isSuccess ? 'success' : 'failed',
+            overallProgress: 100,
+            deploymentUrl: deployedUrl  // ✅ Required for confetti trigger
+          };
         });
         addAssistantMessage({
-          content: isSuccess ? `## 🎉 Deployment Successful!\n\n${deployData.message}` : `## ❌ Deployment Failed\n\n${deployData.error}`,
+          content: isSuccess ? `## 🎉 Deployment Successful!\n\n${deployData.message || 'Your app is live!'}` : `## ❌ Deployment Failed\n\n${deployData.error || 'Build or deployment failed.'}`,
           actions: isSuccess ? [
             { id: 'view_logs', label: '📊 View Logs', type: 'button', action: 'view_logs' },
             { id: 'setup_cicd', label: '🔄 Set Up CI/CD', type: 'button', action: 'setup_cicd' },
           ] : undefined,
-          metadata: { type: 'deployment_complete', url: deployData.url }
-        });
+          metadata: { type: 'deployment_complete', url: deployedUrl },
+          // ✅ CRITICAL: Pass deploymentUrl directly for confetti detection
+          ...(deployedUrl ? { deploymentUrl: deployedUrl } : {})
+        } as any);
         break;
 
       case 'error':

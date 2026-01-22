@@ -13,6 +13,7 @@ class DeploymentStages:
     REPO_CLONE = "repo_clone"
     CODE_ANALYSIS = "code_analysis"
     DOCKERFILE_GEN = "dockerfile_generation"
+    ENV_VARS = "env_vars"  # ✅ NEW: Environment variable configuration stage
     SECURITY_SCAN = "security_scan"
     CONTAINER_BUILD = "container_build"
     CLOUD_DEPLOYMENT = "cloud_deployment"
@@ -98,3 +99,12 @@ class ProgressNotifier:
     async def update_progress(self, stage: str, message: str, progress: int):
         """Update progress percentage for current stage"""
         await self.send_update(stage, "in-progress", message, progress=progress)
+
+    async def send_message(self, type: str, data: dict):
+        """Generic message sender wrapper for compatibility"""
+        payload = {
+            "type": type,
+            **data,
+            "timestamp": datetime.now().isoformat()
+        }
+        await self.safe_send(self.session_id, payload)
