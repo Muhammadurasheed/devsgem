@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ChatMessage as ChatMessageType } from '@/types/websocket';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import { DeploymentStages } from './DeploymentStages';
+import { DeploymentStages, STAGES } from './DeploymentStages';
 import { AnalysisCard } from './AnalysisCard';
 
 import { DeploymentProgress as IDeploymentProgress } from '@/types/deployment';
@@ -40,16 +40,18 @@ const useSmoothedProgress = (targetProgress: number, stage: string, status: stri
         setVisualProgress(prev => {
           // Calculate dynamic cap based on stage
           // Build can go high (85%), Deploy can go higher (95%)
-          const cap = stage === 'container_build' ? 85 : 95;
+          const cap = stage === 'container_build' ? 88 : 96;
           const remaining = cap - prev;
 
           if (remaining <= 0) return prev; // Don't exceed cap
 
-          // Organic increment: Smaller as we get closer to cap
-          const increment = Math.max(0.05, Math.random() * (remaining / 50));
+          // Organic increment: Zeno's Paradox style
+          // Starts fast, gets infinitely slower as it approaches the cap
+          // This ensures it never "stops" but also never "finishes" prematurely
+          const increment = Math.max(0.01, remaining * 0.05);
           return Math.min(prev + increment, cap);
         });
-      }, 800); // Update every 800ms for "breathing" feel
+      }, 500); // 2Hz update for fluid feel
 
       return () => clearInterval(interval);
     } else {
@@ -84,7 +86,7 @@ export const DeploymentProgress = ({ messages, isTyping, deploymentUrl, activeDe
 
   // Map Stage ID to Label if possible, or use raw ID
   const rawStage = activeDeployment ? activeDeployment.currentStage : (progressMessage?.metadata?.stage || 'Initializing');
-  const stageDef = DeploymentStages.find(s => s.id === rawStage); // Try to find definition
+  const stageDef = STAGES.find(s => s.id === rawStage); // Try to find definition
   const stage = stageDef ? stageDef.label : rawStage;
 
   // ✅ APPLY SMOOTHING
@@ -242,6 +244,22 @@ export const DeploymentProgress = ({ messages, isTyping, deploymentUrl, activeDe
                     <span className="font-medium text-foreground/80">{stage}</span>
                     <span className="font-mono text-primary text-xs">{progress}%</span>
                   </div>
+
+                  {/* Status Indicator (Last Log) */}
+                  <div className="text-xs text-muted-foreground font-mono truncate h-5 flex items-center">
+                    {logs.length > 0 ? (
+                      <span className="flex items-center gap-2 animate-in fade-in slide-in-from-left-1 duration-300">
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                        {logs[logs.length - 1].replace(/\[.*?\]/, '').trim()}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2 italic opacity-70">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        {stage === 'Environment Config' ? 'Securing environment variables...' : 'Initializing pipeline nodes...'}
+                      </span>
+                    )}
+                  </div>
+
                   <div className="h-2 w-full bg-secondary/30 rounded-full overflow-hidden">
                     <motion.div
                       className="h-full bg-gradient-to-r from-blue-500 to-purple-500"

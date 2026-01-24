@@ -135,7 +135,7 @@ class CodeAnalyzerAgent:
             
             # ✅ GROUND TRUTH PROTECTION: Don't let AI override 100% confident heuristics
             if heuristic_report.get('confidence', 0) >= 1.0:
-                print(f"[CodeAnalyzer] 🛡️ Protecting ground truth: {heuristic_report['framework']}")
+                print(f"[CodeAnalyzer] Protecting ground truth: {heuristic_report['framework']}")
                 analysis['framework'] = heuristic_report['framework']
                 if 'language' in heuristic_report:
                     analysis['language'] = heuristic_report['language']
@@ -306,7 +306,16 @@ class CodeAnalyzerAgent:
             if '@sveltejs/kit' in dev_deps: add_score('sveltekit', 100, 'Dev dependency')
             if 'astro' in deps: add_score('astro', 100, 'Core dependency')
             if 'fastify' in deps: add_score('fastify', 80, 'Core dependency')
+            if 'fastify' in deps: add_score('fastify', 80, 'Core dependency')
             if 'vue' in deps and 'nuxt' in deps: add_score('nuxtjs', 100, 'Core dependency')
+            
+            # Generic Frontend Detection (Angular, Vue, Svelte, etc.)
+            # If no meta-framework (Next/Nuxt) is found, but frontend libs exist
+            frontend_libs = ['@angular/core', 'vue', 'svelte', 'react'] 
+            if any(lib in deps or lib in dev_deps for lib in frontend_libs):
+                # Only add if no specific framework claimed it yet (like Next.js claiming React)
+                if not any(f in framework_scores for f in ['nextjs', 'nuxtjs', 'sveltekit', 'remix', 'astro']):
+                     add_score('frontend_generic', 60, 'Frontend library detected')
 
         if 'requirements.txt' in file_structure['config_files']:
             reqs = (project_path / 'requirements.txt').read_text()
@@ -320,9 +329,34 @@ class CodeAnalyzerAgent:
             if 'github.com/labstack/echo' in gomod: add_score('echo', 100, 'Core dependency')
             if 'github.com/gofiber/fiber' in gomod: add_score('fiber', 100, 'Core dependency')
             if 'github.com/gobuffalo/buffalo' in gomod: add_score('buffalo', 100, 'Core dependency')
+            if 'github.com/gobuffalo/buffalo' in gomod: add_score('buffalo', 100, 'Core dependency')
             # Fallback for generic Go
             if not framework_scores.get('gin') and not framework_scores.get('echo'):
                 add_score('go_generic', 50, 'Go module detected')
+
+        # PHP Composer
+        if 'composer.json' in file_structure['config_files']:
+            try:
+                composer = json.loads((project_path / 'composer.json').read_text())
+                reqs = composer.get('require', {})
+                if 'laravel/framework' in reqs: add_score('laravel', 100, 'Core dependency')
+                if 'symfony/framework-bundle' in reqs: add_score('symfony', 100, 'Core dependency')
+                if not framework_scores.get('laravel') and not framework_scores.get('symfony'):
+                     add_score('php_generic', 50, 'Composer detected')
+            except: 
+                pass
+
+        # Java Maven
+        if 'pom.xml' in file_structure['config_files']:
+            pom = (project_path / 'pom.xml').read_text()
+            if 'spring-boot-starter-web' in pom: add_score('springboot', 100, 'Starter dependency')
+            else: add_score('java_generic', 50, 'Maven detected')
+
+        # Ruby Gemfile
+        if 'Gemfile' in file_structure['config_files']:
+            gemfile = (project_path / 'Gemfile').read_text()
+            if "gem 'rails'" in gemfile or 'gem "rails"' in gemfile: add_score('rails', 100, 'Rails gem')
+            else: add_score('ruby_generic', 50, 'Gemfile detected')
             
         # 3. File Pattern Scanning
         if (project_path / 'nest-cli.json').exists(): add_score('nestjs', 50, 'Config file')
@@ -346,9 +380,12 @@ class CodeAnalyzerAgent:
         confidence = min(total_score / 100.0, 1.0) # Cap at 1.0
         
         # 5. Language Inference
-        language = 'node' if winner in ['express', 'nestjs', 'nextjs', 'remix', 'sveltekit', 'astro', 'fastify', 'nuxtjs'] else \
+        language = 'node' if winner in ['express', 'nestjs', 'nextjs', 'remix', 'sveltekit', 'astro', 'fastify', 'nuxtjs', 'frontend_generic'] else \
                    'python' if winner in ['fastapi', 'flask', 'django'] else \
-                   'golang' if winner in ['gin', 'echo', 'fiber', 'buffalo', 'go_generic'] else 'unknown'
+                   'golang' if winner in ['gin', 'echo', 'fiber', 'buffalo', 'go_generic'] else \
+                   'php' if winner in ['laravel', 'symfony', 'php_generic'] else \
+                   'ruby' if winner in ['rails', 'ruby_generic'] else \
+                   'java' if winner in ['springboot', 'java_generic'] else 'unknown'
         
         # 6. Metadata Extraction
         runtime_version = engines.get('node') or engines.get('python') or 'unknown'

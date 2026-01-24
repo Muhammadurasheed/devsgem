@@ -10,7 +10,7 @@ interface DeploymentStagesProps {
     progress: number;
 }
 
-const STAGES = [
+export const STAGES = [
     { id: 'REPO_CLONE', label: 'Clone Repository', icon: GitBranch, description: 'Fetching your code...' },
     { id: 'CODE_ANALYSIS', label: 'Analyze Code', icon: Search, description: 'Understanding structure...' },
     { id: 'BUILD_IMAGE', label: 'Build Solution', icon: MonitorPlay, description: 'Creating container...' },

@@ -21,6 +21,7 @@ class HealthCheckResult:
     status_code: Optional[int]
     response_time_ms: float
     timestamp: str
+    verified_up: bool = False  # True if app is alive even if status isn't 200
     error: Optional[str] = None
     body: Optional[str] = None
 
@@ -178,12 +179,30 @@ class HealthCheckService:
                 
                 success = response.status in expected_status_codes
                 
+                # Smart Verification: If 404, check if it's a "Healthy 404" from a framework
+                verified_up = False
+                if success:
+                    verified_up = True
+                elif response.status == 404 and body:
+                    # Detect NestJS, FastAPI, etc signatures
+                    signatures = [
+                        "Cannot GET /",            # NestJS
+                        "detail\": \"Not Found",     # FastAPI / Starlette
+                        "Route not found",         # Laravel / Express
+                        "No route matches",        # Rails
+                        "404 Not Found"            # Nginx/Generic
+                    ]
+                    if any(sig in body for sig in signatures):
+                        verified_up = True
+                        logger.info(f"Smart Verification: 404 body matches framework signature. Service is UP.")
+
                 return HealthCheckResult(
                     success=success,
+                    verified_up=verified_up,
                     status_code=response.status,
                     response_time_ms=response_time_ms,
                     timestamp=datetime.utcnow().isoformat(),
-                    error=None if success else f"Unexpected status code: {response.status}",
+                    error=None if verified_up else f"Unexpected status code: {response.status}",
                     body=body[:500] if body else None  # Truncate body
                 )
                 

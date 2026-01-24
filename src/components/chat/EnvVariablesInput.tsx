@@ -19,21 +19,7 @@ export function EnvVariablesInput({ onEnvSubmit, onSkip, sendMessageToBackend }:
   const [varCount, setVarCount] = useState(0);
 
   const handleEnvSubmit = (envVars: EnvVariable[]) => {
-    console.log('[EnvVariablesInput] Submitting env vars to backend:', envVars.length);
     setVarCount(envVars.length);
-
-    // Send to backend via WebSocket
-    if (sendMessageToBackend) {
-      sendMessageToBackend('env_vars_uploaded', {
-        variables: envVars.map(env => ({
-          key: env.key,
-          value: env.value,
-          isSecret: env.isSecret
-        })),
-        count: envVars.length
-      });
-    }
-
     // Mark as submitted to show the "Launch" button
     setIsSubmitted(true);
 

@@ -889,8 +889,11 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                     'timestamp': datetime.now().isoformat()
                 })
                 
-                # Create progress notifier for deployment
-                existing_deployment = getattr(user_orchestrator, 'active_deployment', None)
+                # ✅ FAANG-LEVEL FIX: Avoid duplicate deployment triggers
+                if existing_deployment and existing_deployment.get('status') == 'deploying':
+                    print(f"[WebSocket] 🛑 Deployment already in progress for {session_id}. Ignoring redundant trigger.")
+                    return
+                
                 if existing_deployment and existing_deployment.get('deploymentId'):
                     deployment_id = existing_deployment['deploymentId']
                     print(f"[WebSocket] ♻️ Resuming deployment: {deployment_id}")
@@ -905,7 +908,7 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                     })
                 else:
                     deployment_id = f"deploy-{uuid.uuid4().hex[:8]}"
-                    print(f"[WebSocket] ✨ Starting fresh deployment: {deployment_id}")
+                    print(f"[WebSocket] Starting fresh deployment: {deployment_id}")
                     
                     await safe_send_json(session_id, {
                         "type": "deployment_started",

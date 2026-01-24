@@ -67,7 +67,7 @@ CMD ["sh", "-c", "uvicorn {entry_point}:app --host 0.0.0.0 --port ${PORT:-8080}"
 FROM node:20-slim AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY . .
 
 FROM node:20-slim
@@ -80,13 +80,38 @@ ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "{entry_point}"]
 """,
+
+            'nodejs_nestjs': """# Multi-stage build for NestJS
+# Using slim instead of alpine for glibc compatibility
+FROM node:20-slim AS builder
+WORKDIR /app
+COPY package*.json ./
+# Smart install: Use ci if lockfile exists, else install
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+COPY . .
+RUN npm run build
+
+FROM node:20-slim
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=8080
+RUN groupadd -g 1001 nodejs && useradd -u 1001 -g nodejs -m nodejs
+# NestJS build output is typically in dist
+COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nodejs:nodejs /app/package*.json ./
+USER nodejs
+EXPOSE 8080
+# Default entry point for NestJS
+CMD ["node", "dist/main"]
+""",
             
             'nodejs_nextjs': """# Multi-stage build for Next.js
 # Using slim instead of alpine for glibc compatibility
 FROM node:20-slim AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 FROM node:20-slim AS builder
 WORKDIR /app
@@ -126,6 +151,68 @@ ENV PORT=8080
 EXPOSE 8080
 CMD ["/main"]
 """,
+            'php_generic': """# Production PHP (Apache)
+FROM php:8.2-apache
+WORKDIR /var/www/html
+RUN a2enmod rewrite
+COPY . .
+# Install Composer if needed
+RUN if [ -f "composer.json" ]; then \
+    apt-get update && apt-get install -y unzip && \
+    curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer && \
+    composer install --no-dev --optimize-autoloader; \
+    fi
+RUN chown -R www-data:www-data /var/www/html
+ENV PORT=8080
+RUN sed -i 's/80/${PORT}/g' /etc/apache2/sites-available/000-default.conf /etc/apache2/ports.conf
+EXPOSE 8080
+CMD ["apache2-foreground"]
+""",
+            'ruby_generic': """# Ruby/Rails Production
+FROM ruby:3.2-slim
+WORKDIR /app
+RUN apt-get update -qq && apt-get install -y build-essential libpq-dev nodejs
+COPY Gemfile* ./
+RUN bundle install
+COPY . .
+ENV PORT=8080
+ENV RAILS_ENV=production
+ENV RAILS_SERVE_STATIC_FILES=true
+EXPOSE 8080
+CMD ["sh", "-c", "bundle exec rails server -b 0.0.0.0 -p ${PORT}"]
+""",
+            'java_generic': """# Java Spring Boot (Maven)
+FROM maven:3.9-eclipse-temurin-17 AS builder
+WORKDIR /app
+COPY pom.xml .
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+FROM eclipse-temurin:17-jre-jammy
+WORKDIR /app
+COPY --from=builder /app/target/*.jar app.jar
+ENV PORT=8080
+EXPOSE 8080
+CMD ["java", "-jar", "app.jar"]
+""",
+            'frontend_generic': """# Generic Frontend (Static/SPA)
+FROM nginx:alpine
+WORKDIR /usr/share/nginx/html
+RUN rm -rf ./*
+COPY . .
+# Universal SPA Nginx Config
+RUN echo 'server { \
+    listen 8080; \
+    root /usr/share/nginx/html; \
+    index index.html; \
+    location / { \
+        try_files $uri $uri/ /index.html; \
+    } \
+}' > /etc/nginx/conf.d/default.conf
+ENV PORT=8080
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
+""",
         }
         
         # ✅ DEFINE TEMPLATES AS VARIABLES FOR ROBUST ALIASING
@@ -134,7 +221,7 @@ CMD ["/main"]
 FROM node:20-slim AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY . .
 RUN npm run build   
 
@@ -174,7 +261,7 @@ CMD ["sh", "-c", "serve -s static -l $PORT"]
 FROM node:20-slim AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 FROM node:20-slim AS builder
 WORKDIR /app
@@ -207,8 +294,27 @@ CMD ["node", "server.js"]
             'javascript_react': nodejs_vite_template,
             'typescript_vite': nodejs_vite_template,
             'javascript_vite': nodejs_vite_template,
+            'javascript_vite': nodejs_vite_template,
             'typescript_nextjs': nodejs_nextjs_template,
             'javascript_nextjs': nodejs_nextjs_template,
+            'nodejs_nest': templates['nodejs_nestjs'],
+            'nodejs_nestjs': templates['nodejs_nestjs'],
+            'typescript_nestjs': templates['nodejs_nestjs'],
+            'javascript_nestjs': templates['nodejs_nestjs'],
+            
+            # Universal Aliases
+            'golang_generic': templates['golang_gin'], # Map generic Go to our optimized builder
+            'go_generic': templates['golang_gin'],
+            'laravel': templates['php_generic'],
+            'symfony': templates['php_generic'],
+            'rails': templates['ruby_generic'],
+            'springboot': templates['java_generic'],
+            'angular': nodejs_vite_template, # Angular usually builds similar to Vite/React
+            'vue': nodejs_vite_template,
+            'svelte': nodejs_vite_template,
+            'sveltekit': nodejs_vite_template,
+            'astro': nodejs_vite_template,
+            'nuxtjs': nodejs_vite_template,
         })
         
         return templates
@@ -227,7 +333,7 @@ CMD ["node", "server.js"]
             )
         
         framework_key = f"{analysis['language']}_{analysis['framework']}"
-        print(f"[DockerExpert] 🛠️ Processing: Language={analysis['language']}, Framework={analysis['framework']}, Key={framework_key}")
+        print(f"[DockerExpert] Processing: Language={analysis['language']}, Framework={analysis['framework']}, Key={framework_key}")
         
         # ✅ COMPREHENSIVE SYNONYM MAPPING: Handle all variants
         # Language normalization: 'node' -> 'nodejs', 'go' -> 'golang'
@@ -270,21 +376,21 @@ CMD ["node", "server.js"]
             if progress_notifier:
                 await progress_notifier.update_progress(
                     "dockerfile_generation",
-                    f"📋 Using optimized template for {framework_key}",
+                    f"Using optimized template for {framework_key}",
                     50
                 )
             
-            # ✅ PHASE 1.2: Smart System Dependency Resolution
+            # PHASE 1.2: Smart System Dependency Resolution
             system_deps = []
             if analysis.get('dependencies'):
                 if progress_callback:
-                    await progress_callback("🧠 Analyzing system dependencies with Gemini...")
+                    await progress_callback("Analyzing system dependencies with Gemini...")
                     await asyncio.sleep(0)
                 
                 system_deps = await self._resolve_system_dependencies(analysis['dependencies'])
                 
                 if system_deps and progress_callback:
-                    await progress_callback(f"📦 Identified system packages: {', '.join(system_deps)}")
+                    await progress_callback(f"Identified system packages: {', '.join(system_deps)}")
                     await asyncio.sleep(0)
 
             template = self.templates[framework_key]
@@ -309,11 +415,11 @@ CMD ["node", "server.js"]
             return {
                 'dockerfile': dockerfile,
                 'optimizations': [
-                    "✅ Multi-stage build (50-70% smaller image)",
-                    "✅ Non-root user (security hardened)",
-                    "✅ Layer caching optimized",
-                    "✅ Cloud Run compatible (PORT env var)",
-                    "✅ Production-grade server configuration"
+                    "Multi-stage build (50-70% smaller image)",
+                    "Non-root user (security hardened)",
+                    "Layer caching optimized",
+                    "Cloud Run compatible (PORT env var)",
+                    "Production-grade server configuration"
                 ],
                 'size_estimate': self._estimate_image_size(framework_key)
             }
@@ -372,9 +478,9 @@ CMD ["node", "server.js"]
         build_folder = analysis.get('build_output', 'dist')
         customized = template.replace('{build_output}', build_folder)
         
-        # ✅ AI-DRIVEN SYSTEM DEPENDENCY INJECTION
+        # AI-DRIVEN SYSTEM DEPENDENCY INJECTION
         if system_deps:
-            print(f"[DockerExpert] 💉 Injecting AI-resolved system dependencies: {system_deps}")
+            print(f"[DockerExpert] Injecting AI-resolved system dependencies: {system_deps}")
             packages = " \\\n    ".join(system_deps)
             install_cmd = f"""
 RUN apt-get update && apt-get install -y \\
@@ -442,14 +548,14 @@ Return ONLY valid JSON.
             deps_str_lower = [str(d).lower() for d in python_deps]
             
             if any('opencv' in d and 'headless' not in d for d in deps_str_lower):
-                print("[DockerExpert] 🛡️ Detected opencv-python: Forcing libgl1 injection")
+                print("[DockerExpert] Detected opencv-python: Forcing libgl1 injection")
                 final_deps.add('libgl1')
                 final_deps.add('libglib2.0-0')
             
             return list(final_deps)
 
         except asyncio.TimeoutError:
-            print("[DockerExpert] ⚠️ AI Dependency Resolution timed out. Using fallbacks.")
+            print("[DockerExpert] AI Dependency Resolution timed out. Using fallbacks.")
             # Fallback logic for timeout
             deps_str_lower = [str(d).lower() for d in python_deps]
             fallback = []
@@ -575,7 +681,7 @@ async def test_docker_expert():
         'port': 5000
     }
     
-    print("🐳 Generating Dockerfile...\n")
+    print("Generating Dockerfile...\n")
     result = await expert.generate_dockerfile(mock_analysis)
     
     print("="*60)
@@ -586,7 +692,9 @@ async def test_docker_expert():
     print("OPTIMIZATIONS:")
     print("="*60)
     for opt in result['optimizations']:
-        print(f"  {opt}")
+        # Strip any remaining special chars for test output
+        safe_opt = opt.encode('ascii', 'ignore').decode('ascii')
+        print(f"  {safe_opt}")
     print(f"\nEstimated Size: {result['size_estimate']}")
 
 if __name__ == "__main__":
