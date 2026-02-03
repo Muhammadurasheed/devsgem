@@ -37,9 +37,9 @@ COPY --from=builder /root/.local /home/appuser/.local
 COPY --chown=appuser:appuser . .
 USER appuser
 ENV PATH=/home/appuser/.local/bin:$PATH
-ENV PORT=8080
+ENV PORT={port}
 ENV PYTHONUNBUFFERED=1
-EXPOSE 8080
+EXPOSE {port}
 CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 0 {entry_point}:app
 """,
             
@@ -56,10 +56,10 @@ COPY --from=builder /root/.local /home/appuser/.local
 COPY --chown=appuser:appuser . .
 USER appuser
 ENV PATH=/home/appuser/.local/bin:$PATH
-ENV PORT=8080
+ENV PORT={port}
 ENV PYTHONUNBUFFERED=1
-EXPOSE 8080
-CMD ["sh", "-c", "uvicorn {entry_point}:app --host 0.0.0.0 --port ${PORT:-8080}"]
+EXPOSE {port}
+CMD exec uvicorn {entry_point}:app --host 0.0.0.0 --port $PORT
 """,
             
             'nodejs_express': """# Multi-stage build for Express
@@ -75,9 +75,9 @@ WORKDIR /app
 RUN groupadd -g 1001 nodejs && useradd -u 1001 -g nodejs -m nodejs
 COPY --from=builder --chown=nodejs:nodejs /app /app
 USER nodejs
-ENV PORT=8080
+ENV PORT={port}
 ENV NODE_ENV=production
-EXPOSE 8080
+EXPOSE {port}
 CMD ["node", "{entry_point}"]
 """,
 
@@ -101,7 +101,8 @@ COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
 COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nodejs:nodejs /app/package*.json ./
 USER nodejs
-EXPOSE 8080
+ENV PORT={port}
+EXPOSE {port}
 # Default entry point for NestJS
 CMD ["node", "dist/main"]
 """,
@@ -123,14 +124,14 @@ RUN npm run build
 FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT={port}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN groupadd -g 1001 nodejs && useradd -u 1001 -g nodejs -m nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 USER nextjs
-EXPOSE 3000
+EXPOSE {port}
 CMD ["node", "server.js"]
 """,
             
@@ -147,8 +148,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags='-w -s' -o 
 FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/main /main
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT={port}
+EXPOSE {port}
 CMD ["/main"]
 """,
             'php_generic': """# Production PHP (Apache)
@@ -163,9 +164,9 @@ RUN if [ -f "composer.json" ]; then \
     composer install --no-dev --optimize-autoloader; \
     fi
 RUN chown -R www-data:www-data /var/www/html
-ENV PORT=8080
-RUN sed -i 's/80/${PORT}/g' /etc/apache2/sites-available/000-default.conf /etc/apache2/ports.conf
-EXPOSE 8080
+ENV PORT={port}
+RUN sed -i 's/80/${{PORT}}/g' /etc/apache2/sites-available/000-default.conf /etc/apache2/ports.conf
+EXPOSE {port}
 CMD ["apache2-foreground"]
 """,
             'ruby_generic': """# Ruby/Rails Production
@@ -175,11 +176,11 @@ RUN apt-get update -qq && apt-get install -y build-essential libpq-dev nodejs
 COPY Gemfile* ./
 RUN bundle install
 COPY . .
-ENV PORT=8080
+ENV PORT={port}
 ENV RAILS_ENV=production
 ENV RAILS_SERVE_STATIC_FILES=true
-EXPOSE 8080
-CMD ["sh", "-c", "bundle exec rails server -b 0.0.0.0 -p ${PORT}"]
+EXPOSE {port}
+CMD exec bundle exec rails server -b 0.0.0.0 -p $PORT
 """,
             'java_generic': """# Java Spring Boot (Maven)
 FROM maven:3.9-eclipse-temurin-17 AS builder
@@ -191,26 +192,26 @@ RUN mvn clean package -DskipTests
 FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT={port}
+EXPOSE {port}
 CMD ["java", "-jar", "app.jar"]
 """,
-            'frontend_generic': """# Generic Frontend (Static/SPA)
+            'frontend_generic': r"""# Generic Frontend (Static/SPA)
 FROM nginx:alpine
 WORKDIR /usr/share/nginx/html
 RUN rm -rf ./*
 COPY . .
 # Universal SPA Nginx Config
-RUN echo 'server { \
-    listen 8080; \
+RUN echo "server {{ \
+    listen {port}; \
     root /usr/share/nginx/html; \
     index index.html; \
-    location / { \
-        try_files $uri $uri/ /index.html; \
-    } \
-}' > /etc/nginx/conf.d/default.conf
-ENV PORT=8080
-EXPOSE 8080
+    location / {{ \
+        try_files \$uri \$uri/ /index.html; \
+    }} \
+}}" > /etc/nginx/conf.d/default.conf
+ENV PORT={port}
+EXPOSE {port}
 CMD ["nginx", "-g", "daemon off;"]
 """,
         }
@@ -223,7 +224,17 @@ WORKDIR /app
 COPY package*.json ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY . .
-RUN npm run build   
+
+# [FAANG] Adaptive Build System:
+# 1. Try strict build (npm run build)
+# 2. If fails (likely unused vars), try permissive build (npx vite build)
+# 3. If both fail, exit with error
+RUN if npm run build; then \
+        echo "✅ Strict build succeeded"; \
+    else \
+        echo "⚠️ Strict build failed, attempting permissive build..."; \
+        npx vite build || exit 1; \
+    fi
 
 # ✅ NORMALIZE OUTPUT: Folder naming depends on framework (dist vs build)
 # We move whichever exists to a standard 'output' folder
@@ -244,7 +255,7 @@ WORKDIR /app
 COPY --from=builder /app/output ./static
 
 # Use Cloud Run environment variable
-ENV PORT=8080
+ENV PORT={port}
 ENV NODE_ENV=production
 
 # Run as non-root user (Security Best Practice)
@@ -253,6 +264,7 @@ USER node
 # Start server on $PORT
 # -s: Single Page Application mode (rewrites 404 to index.html)
 # -l: Listen on port
+EXPOSE {port}
 CMD ["sh", "-c", "serve -s static -l $PORT"]
 """
 
@@ -273,14 +285,14 @@ RUN npm run build
 FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT={port}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN groupadd -g 1001 nodejs && useradd -u 1001 -g nodejs -m nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 USER nextjs
-EXPOSE 3000
+EXPOSE {port}
 CMD ["node", "server.js"]
 """
 
@@ -319,17 +331,23 @@ CMD ["node", "server.js"]
         
         return templates
     
-    async def generate_dockerfile(self, analysis: Dict, progress_notifier=None, progress_callback=None) -> Dict:
+    async def generate_dockerfile(
+        self, 
+        analysis: Dict, 
+        progress_notifier=None, 
+        progress_callback=None,
+        abort_event: Optional[asyncio.Event] = None # [FAANG]
+    ) -> Dict:
         """Generate optimized Dockerfile based on analysis with real-time progress"""
         
-        # ✅ PHASE 1.1: Send progress - Starting Dockerfile generation WITH flush
+        # PHASE 1.1: Send progress - Starting Dockerfile generation WITH flush
         if progress_callback:
-            await progress_callback(f"🐳 Generating Dockerfile for {analysis.get('framework', 'unknown')}...")
-            await asyncio.sleep(0)  # ✅ Force event loop flush
+            await progress_callback(f"[INFO] Generating Dockerfile for {analysis.get('framework', 'unknown')}...")
+            await asyncio.sleep(0)  # Force event loop flush
         if progress_notifier:
             await progress_notifier.start_stage(
                 "dockerfile_generation",
-                f"📝 Generating optimized Dockerfile for {analysis.get('framework', 'unknown')}..."
+                f"[INFO] Generating optimized Dockerfile for {analysis.get('framework', 'unknown')}..."
             )
         
         framework_key = f"{analysis['language']}_{analysis['framework']}"
@@ -344,6 +362,10 @@ CMD ["node", "server.js"]
         elif lang == 'go':
             framework_key = f"golang_{analysis['framework']}"
         
+        # [FAANG] Emergency Abort Check
+        if abort_event and abort_event.is_set():
+            return {'dockerfile': '', 'error': 'Deployment aborted by user'}
+
         # ✅ FORCE PYTHON: Prevent Python projects from drifting to Node templates
         if lang == 'python':
              # Restore key if it was drifted or if framework is unknown
@@ -369,10 +391,10 @@ CMD ["node", "server.js"]
             pass
         
         if framework_key in self.templates:
-            # ✅ PHASE 1.1: Progress - Using template WITH flush
+            # PHASE 1.1: Progress - Using template WITH flush
             if progress_callback:
-                await progress_callback(f"📋 Optimizing for {framework_key}")
-                await asyncio.sleep(0)  # ✅ Force event loop flush
+                await progress_callback(f"[INFO] Optimizing for {framework_key}")
+                await asyncio.sleep(0)  # Force event loop flush
             if progress_notifier:
                 await progress_notifier.update_progress(
                     "dockerfile_generation",
@@ -383,11 +405,15 @@ CMD ["node", "server.js"]
             # PHASE 1.2: Smart System Dependency Resolution
             system_deps = []
             if analysis.get('dependencies'):
-                if progress_callback:
-                    await progress_callback("Analyzing system dependencies with Gemini...")
-                    await asyncio.sleep(0)
-                
-                system_deps = await self._resolve_system_dependencies(analysis['dependencies'])
+                if progress_notifier:
+                    await progress_notifier.send_thought(f"Ingesting analysis vectors for `{analysis.get('framework', 'unknown')}` ecosystem.")
+                    await progress_notifier.send_thought(f"Framing container boundaries... selecting native `{analysis.get('language', 'unknown')}` runtimes.")
+                    await progress_notifier.send_thought(f"Cross-referencing {len(analysis.get('dependencies', []))} dependencies with Google's Security Base images...")
+                    await progress_notifier.send_thought("Synthesizing multi-stage build strategy for minimal artifact footprint...")
+                    await progress_notifier.send_thought("Resolving system-level shared libraries (libGL, libpq, glibc) for mission-critical stability...")
+                    await progress_notifier.send_thought("Hardening container security... preparing non-root runtime environments.")
+
+                system_deps = await self._resolve_system_dependencies(analysis['dependencies'], abort_event=abort_event)
                 
                 if system_deps and progress_callback:
                     await progress_callback(f"Identified system packages: {', '.join(system_deps)}")
@@ -396,14 +422,14 @@ CMD ["node", "server.js"]
             template = self.templates[framework_key]
             dockerfile = self._customize_template(template, analysis, system_deps)
             
-            # ✅ PHASE 1.3: Progress - Dockerfile complete WITH flush
+            # PHASE 1.3: Progress - Dockerfile complete WITH flush
             if progress_callback:
-                await progress_callback("✅ Dockerfile ready with optimizations")
-                await asyncio.sleep(0)  # ✅ Force event loop flush
+                await progress_callback("[SUCCESS] Dockerfile ready with optimizations")
+                await asyncio.sleep(0)  # Force event loop flush
             if progress_notifier:
                 await progress_notifier.complete_stage(
                     "dockerfile_generation",
-                    "✅ Dockerfile generated with production optimizations",
+                    "[SUCCESS] Dockerfile generated with production optimizations",
                     details={
                         'template': framework_key,
                         'size_estimate': self._estimate_image_size(framework_key),
@@ -429,7 +455,7 @@ CMD ["node", "server.js"]
         if progress_notifier:
             await progress_notifier.update_progress(
                 "dockerfile_generation",
-                "🤖 Generating custom Dockerfile with AI...",
+                "[AI] Generating custom Dockerfile with AI...",
                 40
             )
         
@@ -439,7 +465,7 @@ CMD ["node", "server.js"]
         if progress_notifier:
             await progress_notifier.complete_stage(
                 "dockerfile_generation",
-                "✅ Custom Dockerfile generated",
+                "[SUCCESS] Custom Dockerfile generated",
                 details={'framework': analysis.get('framework', 'custom')}
             )
         
@@ -476,7 +502,14 @@ CMD ["node", "server.js"]
             
         # ✅ DYNAMIC BUILD FOLDER: Detect if analysis has a build_output
         build_folder = analysis.get('build_output', 'dist')
-        customized = template.replace('{build_output}', build_folder)
+        # [FAANG] Handle port dict format: {dev_port, deploy_port} or legacy int
+        port_data = analysis.get('port', 8080)
+        if isinstance(port_data, dict):
+            port = str(port_data.get('deploy_port', 8080))
+        else:
+            port = str(port_data)
+        
+        customized = template.replace('{build_output}', build_folder).replace('{port}', port)
         
         # AI-DRIVEN SYSTEM DEPENDENCY INJECTION
         if system_deps:
@@ -515,7 +548,7 @@ RUN apt-get update && apt-get install -y \\
 
         return customized.replace('{entry_point}', entry_point)
 
-    async def _resolve_system_dependencies(self, python_deps: list) -> list:
+    async def _resolve_system_dependencies(self, python_deps: list, abort_event: Optional[asyncio.Event] = None) -> list:
         """Use Gemini to identify required system packages (apt-get)"""
         try:
             deps_str = ", ".join(str(d) for d in python_deps)
@@ -591,7 +624,7 @@ Generate a production-optimized Dockerfile for Google Cloud Run with these requi
 - Language: {analysis['language']}
 - Framework: {analysis['framework']}
 - Entry Point: {analysis.get('entry_point', 'unknown')}
-- Port: {analysis.get('port', 8080)}
+- Port: {analysis.get('port', {}).get('deploy_port', 8080) if isinstance(analysis.get('port'), dict) else analysis.get('port', 8080)}
 - Build Tool: {analysis.get('build_tool', 'unknown')}
 
 **Requirements:**

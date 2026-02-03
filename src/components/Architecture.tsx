@@ -9,7 +9,7 @@ const Architecture = () => {
             Built with <span className="gradient-text">Google ADK</span>
           </h2>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            A sophisticated multi-agent system powered by Gemini 2.0 Flash. Production-ready architecture that judges will admire.
+            A sophisticated multi-agent system powered by Gemini 3 Pro. Production-ready architecture that judges will admire.
           </p>
         </div>
         
@@ -81,7 +81,7 @@ const Architecture = () => {
                   "Cloud Run",
                   "Secret Manager",
                   "Cloud Build",
-                  "Gemini 2.0"
+                  "Gemini 3 Pro Preview"
                 ].map((service, index) => (
                   <div 
                     key={index}

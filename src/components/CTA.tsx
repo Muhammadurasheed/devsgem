@@ -51,7 +51,7 @@ const CTA = ({ onCTAClick }: CTAProps) => {
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-secondary animate-pulse" />
-                <span>Powered by Gemini 2.0</span>
+                <span>Powered by Gemini 3 Pro</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />

@@ -1,1 +1,314 @@
-{}
+{
+  "2ef694be-a222-4701-a51a-66c8003382dc": {
+    "id": "2ef694be-a222-4701-a51a-66c8003382dc",
+    "user_id": "Muhammadurasheed",
+    "service_name": "energram",
+    "repo_url": "https://github.com/psyberpath/energram.git",
+    "status": "pending",
+    "url": "",
+    "gcp_url": null,
+    "region": "us-central1",
+    "memory": "512Mi",
+    "cpu": "1",
+    "env_vars": {},
+    "created_at": "2026-02-03T02:53:33.168071",
+    "updated_at": "2026-02-03T02:53:33.168128",
+    "last_deployed": null,
+    "build_logs": [],
+    "stages": [
+      {
+        "id": "repo_access",
+        "label": "Repo Access",
+        "status": "waiting"
+      },
+      {
+        "id": "code_analysis",
+        "label": "Code Analysis",
+        "status": "waiting"
+      },
+      {
+        "id": "dockerfile_generation",
+        "label": "Dockerfile Generation",
+        "status": "waiting"
+      },
+      {
+        "id": "env_vars",
+        "label": "Env Vars",
+        "status": "waiting"
+      },
+      {
+        "id": "security_scan",
+        "label": "Security Scan",
+        "status": "waiting"
+      },
+      {
+        "id": "container_build",
+        "label": "Container Build",
+        "status": "waiting"
+      },
+      {
+        "id": "cloud_deployment",
+        "label": "Cloud Deployment",
+        "status": "waiting"
+      }
+    ],
+    "error_message": null,
+    "request_count": 0,
+    "uptime_percentage": 100.0
+  },
+  "6f520a74-3ea5-4166-aee6-c290bae56801": {
+    "id": "6f520a74-3ea5-4166-aee6-c290bae56801",
+    "user_id": "Muhammadurasheed",
+    "service_name": "confirmit-nest-server",
+    "repo_url": "https://github.com/Muhammadurasheed/confirmit-nest-server.git",
+    "status": "pending",
+    "url": "",
+    "gcp_url": null,
+    "region": "us-central1",
+    "memory": "512Mi",
+    "cpu": "1",
+    "env_vars": {},
+    "created_at": "2026-02-03T03:07:55.805079",
+    "updated_at": "2026-02-03T03:07:55.805184",
+    "last_deployed": null,
+    "build_logs": [],
+    "stages": [
+      {
+        "id": "repo_access",
+        "label": "Repo Access",
+        "status": "waiting"
+      },
+      {
+        "id": "code_analysis",
+        "label": "Code Analysis",
+        "status": "waiting"
+      },
+      {
+        "id": "dockerfile_generation",
+        "label": "Dockerfile Generation",
+        "status": "waiting"
+      },
+      {
+        "id": "env_vars",
+        "label": "Env Vars",
+        "status": "waiting"
+      },
+      {
+        "id": "security_scan",
+        "label": "Security Scan",
+        "status": "waiting"
+      },
+      {
+        "id": "container_build",
+        "label": "Container Build",
+        "status": "waiting"
+      },
+      {
+        "id": "cloud_deployment",
+        "label": "Cloud Deployment",
+        "status": "waiting"
+      }
+    ],
+    "error_message": null,
+    "request_count": 0,
+    "uptime_percentage": 100.0
+  },
+  "f34c4dbe-d74e-459e-bdbf-c2715c8bcb5f": {
+    "id": "f34c4dbe-d74e-459e-bdbf-c2715c8bcb5f",
+    "user_id": "Muhammadurasheed",
+    "service_name": "confirmit-nest-server",
+    "repo_url": "https://github.com/Muhammadurasheed/confirmit-nest-server.git",
+    "status": "live",
+    "url": "https://deploy-e-confirmit-nest-server-n3vlci4vfq-uc.a.run.app",
+    "gcp_url": null,
+    "region": "us-central1",
+    "memory": "512Mi",
+    "cpu": "1",
+    "env_vars": {
+      "NODE_ENV": "development",
+      "PORT": "8080",
+      "API_PREFIX": "api",
+      "FIREBASE_PROJECT_ID": "confirmit-8e623",
+      "FIREBASE_PRIVATE_KEY": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDFToQyBr4reW8S\nljCzLTDFql1O1Vc1ut6jGkieFJtoUhwba3PdpL55HleylM+216TAFl4dxbsqCfcr\nvPV3vtWldHNa1YP1tvWiL2/MZPDqElTPsdNGuLEDHtlJ1IVwR4tVmGNCUjxGFJLa\nHCivamiC25RwEJLbPBUKztZ3HhfJimTnOE8WDWrYaBNtTH7q+BslIcnJsPzgp7lW\nF5lQtK3ea2pUOlbSCN3SP4ixJGxWIZK5gx9UPO0hbPP9LeLN27Qm+KHhV0szeHwC\nF7aA5F+AFcoeiaA/CKMk4SPMwKiKNdlgA3zHGz2GhPndT89phIzHbiCPOs6S2yo7\nUqm9oGuLAgMBAAECggEAPToVObTv9Gu1dQ4YRLHETcKFO/5mFq1Lg0+Xsz5vz1qT\nkEqy5NfHp6wryKX3IyUd4eHPCOwgHXaENhVoEuWsRLCzTz+suGYzKUYRKls0i15u\n5RiomGyduXssMIX7dpEtAr3MJ3t/arvdqkNMuMqLbfgXwwLRn6iwWu8+jC5RcV+u\nVtemn9Jsams4+IHTnN74KAPZzgymgleSG/GrQ4PufZ0wVv1hqtUbM2bVU0DAUVzG\nyCzBz5G/1hdqAzdCIIJni47nB1F2D7z9pThs4cNPC05X82ZDmFr4P/w7hkbL6TAn\nSoA9TNY0EWN1ytKDAMce/vHtgba6eaInBcXxX0loaQKBgQDlTEAFjZJoBHCDPLQb\nANeoepFGCwt2Jm4fpK8X7G0wlpq9HelPlW60IWVw91pDnoyS7VpdS+LECJ7F1oxS\nP+fAXvYWWiXl8q2ckfqB0xIAGEFM1StK6EDMxm1NnvNca4IA9PMfh27PikNog1gs\nK/1TK2lxqh4bNaAxOvUO5XxTvQKBgQDcSI6bIm4K4uArhyCDpwakc5sNjuhV9kfk\n//jZI70ZFiwqf0rDiU2XHGpAr4eTEiAk21vNUeI0lD03futQFQ1XY8eM/4Oz9nKd\nP4Yf5N3BKwNWm3ORtx8J54QYAddKLnynbjRHr0i43QGeducv/pmLE9SxRBjvOkdJ\nt0fgVtQM5wKBgQCeU1wReYOSFx6pP40M6DQAvUD6ID41wqtfZhMQbcunNRZ7Zt/m\nd8QM1NJ6ghDth9iAyysOKIvX2CvpZw9U65NWHTvGi1CHyl1eMt3KLrfLIPRV3Qsb\nmerEem6Wnh5jvkfx6TDGoHk/DLUmwSpstaMhfmQ8e752Az0tQQxc0NBb8QKBgGN2\n/61c5oNT3hTJdwz7JiyrZp/An3fxNJVaX2rskD37nQWzZHbWUIqi8fczSuxFiu4Z\nfmI/Tvye0uV0EZyfZN7I1xn7ZeSkqywFuvI7zUWjvmYk2xI4tXMrbqHIcwWz5+VS\nBZk4tIWEhW6gEdPCCmKaGbfRH9ElZ3sJnxLVIfqRAoGAWegVwIm8b3NSeSTYH69N\neZfB56WaaFDTZ9EOYyPVTwZa6Zk81sb+3fGSsI7ECofGG6TzenSOkUeZFacM+4Bj\njLdiuC01VM4hmCxH0xthij8A+a97AfE7zk4Xq0pWJc4mpOxwyaIOEOtnt/jTNFQC\nJpQcFiLuSLOGgJg8cI3f2jk=\n-----END PRIVATE KEY-----\n",
+      "FIREBASE_CLIENT_EMAIL": "firebase-adminsdk-fbsvc@confirmit-8e623.iam.gserviceaccount.com",
+      "FIREBASE_DATABASE_URL": "https://confirmit-8e623.firebaseio.com",
+      "PAYSTACK_SECRET_KEY": "sk_test_9af63204d5ffcdfa1591ae0583b8f23f43ca22ba",
+      "CLOUDINARY_CLOUD_NAME": "dlmrufbme",
+      "CLOUDINARY_API_KEY": "243879246376513",
+      "CLOUDINARY_API_SECRET": "cxL9Yd6sm1FTfMxs5GeeDRYDWl0",
+      "AI_SERVICE_URL": "https://confirmit-fastapi.onrender.com",
+      "HEDERA_ACCOUNT_ID": "0.0.7098369",
+      "HEDERA_PRIVATE_KEY": "302e020100300506032b65700422042075942eec1fef3f02b4cdafd6554d7789a4be45bbeed42d8001f74dc85c356a4f",
+      "HEDERA_TOPIC_ID": "0.0.7131312",
+      "HEDERA_TOKEN_ID": "0.0.7158192",
+      "HEDERA_NETWORK": "testnet",
+      "NOWPAYMENTS_API_KEY": "F5BRWDS-5YW4CSN-JNTQERP-JEC8XBZ",
+      "NOWPAYMENTS_IPN_SECRET": "AnMSadAnqb8RO44bLk/Xd8arHzvD7pzF",
+      "NOWPAYMENTS_PUBLIC_KEY": "d6872286-8857-444c-ad75-c6a9accf7cac",
+      "UPSTASH_REDIS_REST_URL": "https://smart-louse-22752.upstash.io",
+      "UPSTASH_REDIS_REST_TOKEN": "AVjgAAIncDJiN2M4M2EwZjU4NWM0ZDZmYWU3MTBmMjMyYjYwODBhNXAyMjI3NTI",
+      "CORS_ORIGIN": "http://localhost:8080,https://confirmits.vercel.app,http://localhost:8081",
+      "FRONTEND_URL": "http://localhost:8081,https://confirmits.vercel.app/",
+      "RATE_LIMIT_TTL": "60000",
+      "RATE_LIMIT_MAX": "100"
+    },
+    "created_at": "2026-02-03T03:08:56.211939",
+    "updated_at": "2026-02-03T03:15:48.509972",
+    "last_deployed": null,
+    "build_logs": [],
+    "stages": [
+      {
+        "id": "repo_access",
+        "label": "Repo Access",
+        "status": "waiting"
+      },
+      {
+        "id": "code_analysis",
+        "label": "Code Analysis",
+        "status": "waiting"
+      },
+      {
+        "id": "dockerfile_generation",
+        "label": "Dockerfile Generation",
+        "status": "waiting"
+      },
+      {
+        "id": "env_vars",
+        "label": "Env Vars",
+        "status": "waiting"
+      },
+      {
+        "id": "security_scan",
+        "label": "Security Scan",
+        "status": "waiting"
+      },
+      {
+        "id": "container_build",
+        "label": "Container Build",
+        "status": "waiting"
+      },
+      {
+        "id": "cloud_deployment",
+        "label": "Cloud Deployment",
+        "status": "waiting"
+      }
+    ],
+    "error_message": null,
+    "request_count": 0,
+    "uptime_percentage": 100.0
+  },
+  "3a9e67e1-674c-4807-8071-9fc3cbb79a25": {
+    "id": "3a9e67e1-674c-4807-8071-9fc3cbb79a25",
+    "user_id": "Muhammadurasheed",
+    "service_name": "netxus-web",
+    "repo_url": "https://github.com/Muhammadurasheed/NetXus-web.git",
+    "status": "pending",
+    "url": "",
+    "gcp_url": null,
+    "region": "us-central1",
+    "memory": "512Mi",
+    "cpu": "1",
+    "env_vars": {},
+    "created_at": "2026-02-03T06:42:18.757655",
+    "updated_at": "2026-02-03T06:42:18.757753",
+    "last_deployed": null,
+    "build_logs": [],
+    "stages": [
+      {
+        "id": "repo_access",
+        "label": "Repo Access",
+        "status": "waiting"
+      },
+      {
+        "id": "code_analysis",
+        "label": "Code Analysis",
+        "status": "waiting"
+      },
+      {
+        "id": "dockerfile_generation",
+        "label": "Dockerfile Generation",
+        "status": "waiting"
+      },
+      {
+        "id": "env_vars",
+        "label": "Env Vars",
+        "status": "waiting"
+      },
+      {
+        "id": "security_scan",
+        "label": "Security Scan",
+        "status": "waiting"
+      },
+      {
+        "id": "container_build",
+        "label": "Container Build",
+        "status": "waiting"
+      },
+      {
+        "id": "cloud_deployment",
+        "label": "Cloud Deployment",
+        "status": "waiting"
+      }
+    ],
+    "error_message": null,
+    "request_count": 0,
+    "uptime_percentage": 100.0
+  },
+  "6029ef29-3cda-4363-8d74-0b3a28b6617c": {
+    "id": "6029ef29-3cda-4363-8d74-0b3a28b6617c",
+    "user_id": "Muhammadurasheed",
+    "service_name": "netxus-web",
+    "repo_url": "https://github.com/Muhammadurasheed/NetXus-web.git",
+    "status": "live",
+    "url": "https://deploy-2-netxus-web-n3vlci4vfq-uc.a.run.app",
+    "gcp_url": null,
+    "region": "us-central1",
+    "memory": "512Mi",
+    "cpu": "1",
+    "env_vars": {},
+    "created_at": "2026-02-03T06:44:40.346794",
+    "updated_at": "2026-02-03T06:51:40.753203",
+    "last_deployed": null,
+    "build_logs": [],
+    "stages": [
+      {
+        "id": "repo_access",
+        "label": "Repo Access",
+        "status": "waiting"
+      },
+      {
+        "id": "code_analysis",
+        "label": "Code Analysis",
+        "status": "waiting"
+      },
+      {
+        "id": "dockerfile_generation",
+        "label": "Dockerfile Generation",
+        "status": "waiting"
+      },
+      {
+        "id": "env_vars",
+        "label": "Env Vars",
+        "status": "waiting"
+      },
+      {
+        "id": "security_scan",
+        "label": "Security Scan",
+        "status": "waiting"
+      },
+      {
+        "id": "container_build",
+        "label": "Container Build",
+        "status": "waiting"
+      },
+      {
+        "id": "cloud_deployment",
+        "label": "Cloud Deployment",
+        "status": "waiting"
+      }
+    ],
+    "error_message": null,
+    "request_count": 0,
+    "uptime_percentage": 100.0
+  }
+}

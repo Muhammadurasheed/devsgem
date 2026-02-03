@@ -114,7 +114,7 @@ class HealthCheckService:
                 if result.success:
                     logger.info(f"[SUCCESS] Service is healthy! Response time: {result.response_time_ms:.0f}ms")
                     if progress_callback:
-                        progress_callback(
+                        await progress_callback(
                             f"[SUCCESS] Service is healthy and ready! "
                             f"(Response time: {result.response_time_ms:.0f}ms)"
                         )
@@ -145,7 +145,7 @@ class HealthCheckService:
         
         logger.error(error_msg)
         if progress_callback:
-            progress_callback(f"[ERROR] {error_msg}")
+            await progress_callback(f"[ERROR] {error_msg}")
         
         if last_result:
             last_result.error = error_msg
@@ -251,7 +251,7 @@ class HealthCheckService:
         - Basic content validation
         """
         if progress_callback:
-            progress_callback(f"Verifying URL accessibility: {url}")
+            await progress_callback(f"Verifying URL accessibility: {url}")
         
         result = await self.wait_for_service_ready(
             service_url=url,

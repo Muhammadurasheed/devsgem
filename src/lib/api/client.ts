@@ -28,7 +28,7 @@ class APIClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
-    
+
     const response = await fetch(url, {
       ...options,
       headers: {
@@ -168,6 +168,12 @@ class APIClient {
 
   async getMonthlyUsage(userId: string, year: number, month: number) {
     return this.request(`/api/usage/${userId}/monthly?year=${year}&month=${month}`, {
+      method: 'GET',
+    });
+  }
+
+  async getAnalytics(userId: string) {
+    return this.request(`/api/analytics/${userId}`, {
       method: 'GET',
     });
   }

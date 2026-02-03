@@ -21,30 +21,31 @@ export function DeploymentSuccessPanel({
   const { toast } = useToast();
 
   useEffect(() => {
-    // Trigger confetti celebration
-    const duration = 3000;
-    const animationEnd = Date.now() + duration;
-    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 10000 };
+    // [FAANG] Premium Celebration: Apple-style side canons
+    const duration = 2 * 1000;
+    const end = Date.now() + duration;
+    const colors = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981'];
 
-    const interval = setInterval(() => {
-      const timeLeft = animationEnd - Date.now();
-
-      if (timeLeft <= 0) {
-        clearInterval(interval);
-        return;
-      }
-
-      const particleCount = 50 * (timeLeft / duration);
-
+    (function frame() {
       confetti({
-        ...defaults,
-        particleCount,
-        origin: { x: Math.random(), y: Math.random() - 0.2 },
-        colors: ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981'],
+        particleCount: 2,
+        angle: 60,
+        spread: 55,
+        origin: { x: 0 },
+        colors: colors
       });
-    }, 250);
+      confetti({
+        particleCount: 2,
+        angle: 120,
+        spread: 55,
+        origin: { x: 1 },
+        colors: colors
+      });
 
-    return () => clearInterval(interval);
+      if (Date.now() < end) {
+        requestAnimationFrame(frame);
+      }
+    }());
   }, []);
 
   const copyToClipboard = () => {

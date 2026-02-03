@@ -42,5 +42,15 @@
       "memory_used_mb": 0,
       "bandwidth_gb": 2.7939677238464355e-08
     }
+  },
+  "Muhammadurasheed": {
+    "2026-02-03": {
+      "user_id": "Muhammadurasheed",
+      "date": "2026-02-03",
+      "requests": 241,
+      "deployments": 0,
+      "memory_used_mb": 0,
+      "bandwidth_gb": 0.0016297819092869759
+    }
   }
 }

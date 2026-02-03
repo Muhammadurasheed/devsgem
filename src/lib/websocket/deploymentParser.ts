@@ -27,7 +27,7 @@ export const parseBackendLog = (message: string): StageUpdate | null => {
         'Cloud Run API enabled',
         'Storage bucket configured'
       ],
-      progress: 3,
+      progress: 100, // Relative: Preflight Success
     };
   }
 
@@ -70,7 +70,7 @@ export const parseBackendLog = (message: string): StageUpdate | null => {
         'Cloned from GitHub',
         `Location: ${match ? match[1] : 'local cache'}`,
       ],
-      progress: 15,
+      progress: 100, // Relative: Stage complete
     };
   }
 
@@ -119,7 +119,7 @@ export const parseBackendLog = (message: string): StageUpdate | null => {
         'Dependencies analyzed',
         'Configuration validated',
       ],
-      progress: 35,
+      progress: 100, // Relative: Stage complete
     };
   }
 
@@ -159,7 +159,7 @@ export const parseBackendLog = (message: string): StageUpdate | null => {
         'Layer caching optimized',
         'Dockerfile saved to project'
       ],
-      progress: 50,
+      progress: 100, // Relative: Stage complete
     };
   }
 
@@ -179,7 +179,7 @@ export const parseBackendLog = (message: string): StageUpdate | null => {
       stage: 'security_scan',
       status: 'success',
       details: ['Security checks passed'],
-      progress: 60,
+      progress: 100, // Relative: Stage complete
     };
   }
 
@@ -201,7 +201,7 @@ export const parseBackendLog = (message: string): StageUpdate | null => {
       stage: 'container_build',
       status: 'in-progress',
       details: [`Build progress: ${buildProgress}%`],
-      progress: 65 + (buildProgress * 0.15), // Scale to 65-80%
+      progress: buildProgress, // Relative: Use raw 0-100 build pct
     };
   }
 
@@ -211,7 +211,7 @@ export const parseBackendLog = (message: string): StageUpdate | null => {
       stage: 'container_build',
       status: 'success',
       details: ['Image built successfully'],
-      progress: 80,
+      progress: 100, // Relative: Stage complete
     };
   }
 
@@ -251,7 +251,7 @@ export const parseBackendLog = (message: string): StageUpdate | null => {
       stage: 'cloud_deployment',
       status: 'success',
       details: ['Service deployed and verified successfully!'],
-      progress: 100,
+      progress: 100, // Relative: Stage complete
     };
   }
 

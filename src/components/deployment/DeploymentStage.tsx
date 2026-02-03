@@ -10,13 +10,15 @@ export function DeploymentStage({ stage, isActive }: DeploymentStageProps) {
   const getStatusIcon = () => {
     switch (stage.status) {
       case 'waiting':
-        return '⏳';
+        return stage.icon || '⏳';
       case 'in-progress':
         return '⚡';
       case 'success':
         return '✅';
       case 'error':
         return '❌';
+      default:
+        return stage.icon || '⏳';
     }
   };
 

@@ -9,7 +9,8 @@ import { WebSocketClient } from '@/lib/websocket/WebSocketClient';
 import { forceNewSessionId } from '@/lib/websocket/config';
 import { ConnectionStatus, ServerMessage, ClientMessage, ChatMessage, MessageAction } from '@/types/websocket';
 import { toast } from 'sonner';
-import { DEPLOYMENT_STAGES } from '@/types/deployment';
+import { DEPLOYMENT_STAGES, DeploymentProgress } from '@/types/deployment';
+import { authService } from '@/lib/auth';
 
 interface WebSocketContextValue {
   isConnected: boolean;
@@ -24,14 +25,17 @@ interface WebSocketContextValue {
   setIsTyping: (isTyping: boolean) => void;
   thoughtBuffer: string[];
   setThoughtBuffer: React.Dispatch<React.SetStateAction<string[]>>;
-  activeDeployment: any | null;
-  setActiveDeployment: (deployment: any | null) => void;
+  activeDeployment: DeploymentProgress | null;
+  setActiveDeployment: (deployment: DeploymentProgress | null) => void;
   // History management
   sessions: any[];
   refreshSessions: () => Promise<void>;
   switchSession: (sessionId: string) => void;
   renameSession: (sid: string, newTitle: string) => Promise<boolean>;
   resetSession: () => void;
+  // UI State
+  isChatWindowOpen: boolean;
+  toggleChatWindow: (isOpen?: boolean) => void;
 }
 
 const WebSocketContext = createContext<WebSocketContextValue | null>(null);
@@ -49,8 +53,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [thoughtBuffer, setThoughtBuffer] = useState<string[]>([]);
-  const [activeDeployment, setActiveDeployment] = useState<any | null>(null);
+  const [activeDeployment, setActiveDeployment] = useState<DeploymentProgress | null>(null);
   const [sessions, setSessions] = useState<any[]>([]);
+  const [isChatWindowOpen, setIsChatWindowOpen] = useState(false);
   const hasReceivedProgressRef = useRef(false);
 
   useEffect(() => {
@@ -72,10 +77,17 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     // Connect immediately
     client.connect();
 
+    // [FAANG] Identity Sync: Listen for auth changes and update socket identity
+    const authUnsubscribe = authService.subscribe((user) => {
+      console.log('[WebSocketProvider] 🔐 Auth state changed, syncing identity...');
+      client.updateUser(user);
+    });
+
     // Cleanup only when app unmounts (not when components remount)
     return () => {
       console.log('[WebSocketProvider] 🔴 Provider unmounting - cleaning up WebSocket');
       console.log('[WebSocketProvider] 🔍 This should only happen once during app lifetime');
+      authUnsubscribe();
       unsubscribe();
       client.destroy();
     };
@@ -203,6 +215,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     });
   }, [client]);
 
+  const toggleChatWindow = useCallback((isOpen?: boolean) => {
+    setIsChatWindowOpen(prev => isOpen === undefined ? !prev : isOpen);
+  }, []);
+
   useEffect(() => {
     refreshSessions();
   }, [refreshSessions]);
@@ -232,18 +248,124 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     setMessages(prev => [...prev, message]);
   }, []);
 
-  const handleServerMessage = useCallback((serverMessage: ServerMessage) => {
+  // ========================================================================
+  // [FAANG] NEURO-STREAM ENGINE (Playback Queue)
+  // ========================================================================
+  const playbackQueue = useRef<any[]>([]);
+  const isProcessingQueue = useRef(false);
+
+  // The Heartbeat: Processes the queue with "cinematic" timing
+  const processQueue = useCallback(() => {
+    if (playbackQueue.current.length === 0) {
+      isProcessingQueue.current = false;
+      return;
+    }
+
+    isProcessingQueue.current = true;
+    const item = playbackQueue.current[0]; // Peek
+
+    // [FAANG] Variable Pacing Logic
+    let delay = 30; // Default: Fast but readable
+    const backlog = playbackQueue.current.length;
+
+    // 1. "Thought" moments - Pause to let user read the insight
+    if (item.type === 'ai_thought') {
+      delay = 800; // 0.8s for thoughts
+    }
+    // 2. "Catch up" mode - If backlog is huge, speed up significantly
+    else if (backlog > 50) {
+      delay = 5; // Hyper-speed
+    } else if (backlog > 20) {
+      delay = 15; // Fast forward
+    }
+    // 3. "Cinematic" typing mode - Rhythmic flow with organic jitter
+    else {
+      // [FAANG] Organic Jitter: 20ms - 50ms variability
+      // This prevents the "metronome" feel and feels like a fast typist
+      const base = 30;
+      const jitter = Math.floor(Math.random() * 30); // 0-29ms
+      delay = base + jitter;
+    }
+
+    // Apply the update
+    applyUpdate(item);
+
+    // Remove processed item
+    playbackQueue.current.shift();
+
+    // Schedule next frame
+    setTimeout(processQueue, delay);
+  }, []); // Dependencies will be handled via refs/functional updates
+
+  const enqueueItem = useCallback((item: any) => {
+    playbackQueue.current.push(item);
+    if (!isProcessingQueue.current) {
+      processQueue();
+    }
+  }, [processQueue]);
+
+  // The "Renderer": Applies a single atomic update to the state
+  const applyUpdate = (serverMessage: any) => {
+    // setIsTyping(true); // Keep typing active while processing
+
     switch (serverMessage.type) {
+      case 'monitoring_alert':
+        const alert = serverMessage as any;
+        addAssistantMessage({
+          content: `### 🚨 Proactive Health Alert\n\n${alert.message}`,
+          metadata: {
+            type: 'monitoring_alert',
+            deployment_id: alert.deployment_id,
+            alert_type: alert.alert_type,
+            meta: alert.metadata
+          },
+          actions: [
+            { id: 'view_metrics', label: '📊 View Metrics', type: 'button', url: `/dashboard/monitor/${alert.deployment_id}` },
+            { id: 'fix_it', label: '🛠️ AI Optimization', type: 'button', action: `Analyze and optimize ${alert.service_name} for ${alert.alert_type} issues` }
+          ]
+        });
+        toast.warning(alert.message, { description: `Service Health: ${alert.service_name}` });
+        break;
+
       case 'typing':
         setIsTyping(true);
         hasReceivedProgressRef.current = false;
         setThoughtBuffer([]);
         break;
 
-      case 'thought':
+      case 'ai_thought':
         const thoughtMsg = serverMessage as any;
+        // console.log('[WebSocket] 🧠 AI Thought:', thoughtMsg.content || thoughtMsg.message);
         setIsTyping(true);
-        setThoughtBuffer(prev => [...prev, thoughtMsg.content]);
+        const thoughtContent = thoughtMsg.content || thoughtMsg.message;
+        const thoughtStageId = thoughtMsg.stage_id;
+
+        setThoughtBuffer(prev => [...prev, thoughtContent]);
+
+        setActiveDeployment((prev: any) => {
+          if (!prev) return prev;
+          const updatedThoughts = [...(prev.thoughts || []), thoughtContent];
+
+          // Inject thought into stage history [NEURO-LOG]
+          let updatedStages = prev.stages;
+          if (thoughtStageId) {
+            updatedStages = prev.stages.map((stage: any) => {
+              if (stage.id === thoughtStageId) {
+                const existingDetails = stage.details || [];
+                const aiLogEntry = `[AI] ${thoughtContent}`;
+                return { ...stage, details: [...existingDetails, aiLogEntry] };
+              }
+              return stage;
+            });
+          }
+
+          return {
+            ...prev,
+            lastThought: thoughtContent,
+            thoughts: updatedThoughts,
+            stages: updatedStages
+          };
+        });
         break;
 
       case 'progress':
@@ -252,9 +374,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           setIsTyping(false);
           hasReceivedProgressRef.current = true;
         }
-
         setMessages(prevMessages => {
           const lastMsg = prevMessages[prevMessages.length - 1];
+          // Update valid progress message
           if (lastMsg && lastMsg.metadata?.type === 'progress') {
             const updatedMessages = [...prevMessages];
             updatedMessages[updatedMessages.length - 1] = {
@@ -264,27 +386,23 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
             };
             return updatedMessages;
           }
-          const message: ChatMessage = {
+          return [...prevMessages, {
             id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
             role: 'assistant',
             content: progMsg.content,
             timestamp: new Date(),
             metadata: { type: 'progress', timestamp: new Date().toISOString() }
-          };
-          return [...prevMessages, message];
+          }];
         });
         break;
 
-      // ✅ NEW: Handle deployment resume without resetting state
       case 'deployment_resumed':
         setIsTyping(false);
         hasReceivedProgressRef.current = true;
         const resumeData = serverMessage as any;
-        console.log('[WebSocket] ✅ Deployment RESUMED, preserving all existing stages');
 
-        setActiveDeployment((prev: any) => {
+        setActiveDeployment((prev: DeploymentProgress | null) => {
           if (!prev) {
-            // No prior state, initialize fresh
             return {
               deploymentId: resumeData.deployment_id,
               stages: DEPLOYMENT_STAGES.map(s => ({ ...s })),
@@ -294,11 +412,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
               startTime: new Date().toISOString()
             };
           }
-          // Preserve existing state, just update status
-          return {
-            ...prev,
-            status: 'deploying'
-          };
+          return { ...prev, status: 'deploying' };
         });
         break;
 
@@ -308,29 +422,11 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         const deployStart = serverMessage as any;
         const deploymentStartTime = new Date().toISOString();
 
-        // ✅ FAANG-LEVEL FIX: Preserve ALL accumulated stage details across resumption
-        // The issue was: after .env upload, a new deployment_id was generated
-        // which caused complete state reset. Now we preserve stage details if deployment is active.
-        setActiveDeployment((prev: any) => {
-          // If we have existing progress with completed stages, preserve ALL details
-          const hasExistingProgress = prev && prev.overallProgress > 0;
-          const hasCompletedStages = prev?.stages?.some((s: any) => s.status === 'success' || s.details?.length > 0);
-
-          if (hasExistingProgress || hasCompletedStages) {
-            console.log('[WebSocket] ✅ Resuming deployment, PRESERVING all stage details');
-            console.log('[WebSocket] Existing stages with details:',
-              prev?.stages?.filter((s: any) => s.details?.length > 0).map((s: any) => s.id)
-            );
-            return {
-              ...prev,
-              deploymentId: deployStart.deployment_id, // Update to new ID
-              status: 'deploying',
-              // Keep ALL existing stages with their accumulated details
-            };
+        setActiveDeployment((prev: DeploymentProgress | null) => {
+          const hasExisting = prev && prev.overallProgress > 0;
+          if (hasExisting) {
+            return { ...prev, deploymentId: deployStart.deployment_id, status: 'deploying' };
           }
-
-          // Only fully reset for genuinely new deployments (no prior state)
-          console.log('[WebSocket] Starting fresh deployment:', deployStart.deployment_id);
           return {
             deploymentId: deployStart.deployment_id,
             stages: DEPLOYMENT_STAGES.map(s => ({ ...s })),
@@ -341,14 +437,23 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           };
         });
 
-        addAssistantMessage({
-          content: `Starting deployment to Cloud Run...`,
-          metadata: {
-            type: 'deployment_started',
-            deployment_id: deployStart.deployment_id,
-            showLogs: true,
-            startTime: deploymentStartTime
-          }
+        // Add start message to chat
+        setMessages(prev => {
+          const exists = prev.some(m => m.metadata?.deployment_id === deployStart.deployment_id);
+          if (exists) return prev;
+
+          return [...prev, {
+            id: `msg_deploy_${deployStart.deployment_id}`,
+            role: 'assistant',
+            content: deployStart.message || `Starting deployment...`,
+            timestamp: new Date(),
+            metadata: {
+              type: 'deployment_started',
+              deployment_id: deployStart.deployment_id,
+              showLogs: true,
+              startTime: deploymentStartTime
+            }
+          }];
         });
         break;
 
@@ -359,47 +464,68 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         }
         const deployProg = serverMessage as any;
 
-        // Handle unwrapped payload if needed (though progress notifier uses top-level fields)
-        // Backend sends { type: 'deployment_progress', stage: '...', ... } NOT wrapped in data
-
-        setActiveDeployment((prev: any) => {
+        setActiveDeployment((prev: DeploymentProgress | null) => {
           if (!prev) return prev;
+
           const updatedStages = prev.stages.map((stage: any) => {
             if (stage.id === deployProg.stage) {
+              // [FAANG] Log Accumulator
+              let currentDetails = stage.details || [];
+              let newDetails = deployProg.details || [];
+
+              if (!Array.isArray(newDetails)) {
+                newDetails = Object.entries(newDetails).map(([k, v]) => `${k}: ${v}`);
+              }
+              const updatedDetails = [...new Set([...currentDetails, ...newDetails])];
+
+              const currentStatus = stage.status;
+              const nextStatus = (currentStatus === 'success' || currentStatus === 'error')
+                ? currentStatus
+                : deployProg.status;
+
               return {
                 ...stage,
-                status: deployProg.status,
-                message: deployProg.message,
-                details: deployProg.details ? Object.entries(deployProg.details).map(([k, v]) => `${k}: ${v}`) : stage.details,
-                endTime: deployProg.status === 'success' || deployProg.status === 'error' ? new Date().toISOString() : stage.endTime,
+                status: nextStatus,
+                message: deployProg.message || stage.message,
+                details: updatedDetails,
+                endTime: (nextStatus === 'success' || nextStatus === 'error') ? (stage.endTime || new Date().toISOString()) : stage.endTime,
                 startTime: stage.startTime || new Date().toISOString()
               };
             }
             return stage;
           });
-          const completedStages = updatedStages.filter((s: any) => s.status === 'success');
-          // ✅ WEIGHTED PROGRESS: Use weights for accuracy
-          const totalWeight = DEPLOYMENT_STAGES.reduce((sum, s) => sum + (s.weight || 0), 0) || 100;
-          const currentWeight = completedStages.reduce((sum: number, s: any) => {
-            // Find original stage definition to get static weight
-            const def = DEPLOYMENT_STAGES.find(ds => ds.id === s.id);
-            return sum + (def?.weight || 0);
-          }, 0);
 
-          // Add partial progress for current stage (max 50% of its weight)
+          // [FAANG] Fluid Progress Calculation
+          const totalWeight = DEPLOYMENT_STAGES.reduce((sum, s) => sum + (s.weight || 0), 0) || 100;
+          const completedWeight = updatedStages
+            .filter((s: any) => s.status === 'success')
+            .reduce((sum, s) => sum + (DEPLOYMENT_STAGES.find(ds => ds.id === s.id)?.weight || 0), 0);
+
           const currentStageDef = DEPLOYMENT_STAGES.find(s => s.id === deployProg.stage);
-          // Only add partial if receiving updates, simplistic "halfway through" assumption or small increments?
-          // For now, raw completed weight is safer for stability, or we can add a small buffer?
-          // Let's stick to completed weight to avoid jumping backward, maybe add 10% of current stage weight for "in-progress"
-          const inProgressWeight = (currentStageDef?.weight || 0) * 0.1;
+          const currentStageWeight = currentStageDef?.weight || 0;
+          const incomingSubProgress = deployProg.progress !== undefined ? deployProg.progress : 10;
+
+          const isStageActuallyDone = updatedStages.find((s: any) => s.id === deployProg.stage)?.status === 'success';
+          const partialWeight = (deployProg.status === 'in-progress' && !isStageActuallyDone)
+            ? (currentStageWeight * (incomingSubProgress / 100))
+            : 0;
+
+          const calculatedProgress = Math.round(((completedWeight + partialWeight) / totalWeight) * 100);
+          const currentDisplay = prev.overallProgress;
+          const nextProgress = Math.max(currentDisplay, calculatedProgress);
+          const finalProgress = currentDisplay === 0 ? 1 : nextProgress;
+
+          const lastStageSuccess = updatedStages.find(s => s.id === 'cloud_deployment')?.status === 'success';
+          const isComplete = lastStageSuccess;
 
           return {
             ...prev,
             stages: updatedStages,
             currentStage: deployProg.stage,
-            overallProgress: Math.min(Math.round(((currentWeight + inProgressWeight) / totalWeight) * 100), 99),
-            status: deployProg.status === 'error' ? 'failed' : prev.status,
-            startTime: prev.startTime  // ✅ CRITICAL FIX: Always preserve original startTime!
+            overallProgress: isComplete ? 100 : Math.min(finalProgress, 99),
+            status: isComplete ? 'success' : (deployProg.status === 'error' ? 'failed' : prev.status),
+            startTime: prev.startTime,
+            deploymentUrl: deployProg.deploymentUrl || prev.deploymentUrl
           };
         });
         break;
@@ -407,13 +533,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       case 'message':
         setIsTyping(false);
         hasReceivedProgressRef.current = true;
-
-        // ✅ CRITICAL FIX: Robust Data Extraction
-        // Handle both { type: 'message', data: {...} } AND { type: 'message', ...content }
         const rawMsg = serverMessage as any;
         const msgData = rawMsg.data || rawMsg;
-
-        // Check for analysis type from Orchestrator response
         const isAnalysis = msgData.type === 'analysis' || msgData.type === 'analysis_report' || msgData.metadata?.type === 'analysis_report';
         const analysisPayload = isAnalysis ? (msgData.data || msgData.analysis || rawMsg.analysis) : null;
 
@@ -426,57 +547,84 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
             request_env_vars: msgData.metadata?.request_env_vars || msgData.request_env_vars,
             detected_env_vars: msgData.metadata?.detected_env_vars || msgData.detected_env_vars
           },
-
           data: analysisPayload,
           thoughts: [...thoughtBuffer]
         });
         setThoughtBuffer([]);
-        // ✅ REFRESH HISTORY: Update titles/timestamps in sidebar immediately
         refreshSessions();
         break;
 
       case 'deployment_complete':
         setIsTyping(false);
-        // ✅ ROBUST: Handle both { data: {...} } and flat payload structures
         const deployCompleteRaw = serverMessage as any;
         const deployData = deployCompleteRaw.data || deployCompleteRaw;
-        // ✅ FAANG-LEVEL: Multiple success indicators for reliability
-        const isSuccess = deployData?.status === 'success' ||
-          deployData?.success === true ||
-          (!deployData?.error && deployData?.url);
+        const isSuccess = deployData?.status === 'success' || deployData?.success === true || (!deployData?.error && deployData?.url);
         const deployedUrl = deployData?.url || deployData?.deployment_url || deployCompleteRaw?.url;
 
-        setActiveDeployment((prev: any) => {
+        setActiveDeployment((prev: DeploymentProgress | null) => {
           if (!prev) return prev;
-          // ✅ CRITICAL FIX: Include deploymentUrl for confetti trigger in DeploymentProgress.tsx
+          // [FAANG] Terminal State Reconciliation: Force ALL stages to success
+          const completedStages = prev.stages.map(s => {
+            return {
+              ...s,
+              status: (isSuccess ? 'success' : 'error') as any,
+              message: isSuccess ? 'Completed' : (deployData.error || 'Failed')
+            };
+          });
+
           return {
             ...prev,
             status: isSuccess ? 'success' : 'failed',
-            overallProgress: 100,
-            deploymentUrl: deployedUrl  // ✅ Required for confetti trigger
+            currentStage: isSuccess ? 'success' : prev.currentStage,
+            stages: completedStages,
+            overallProgress: isSuccess ? 100 : prev.overallProgress,
+            deploymentUrl: deployedUrl
           };
         });
+
         addAssistantMessage({
           content: isSuccess ? `## 🎉 Deployment Successful!\n\n${deployData.message || 'Your app is live!'}` : `## ❌ Deployment Failed\n\n${deployData.error || 'Build or deployment failed.'}`,
           actions: isSuccess ? [
-            { id: 'view_logs', label: '📊 View Logs', type: 'button', action: 'view_logs' },
-            { id: 'setup_cicd', label: '🔄 Set Up CI/CD', type: 'button', action: 'setup_cicd' },
+            { id: 'view_logs', label: '📊 View Logs', type: 'button', actions: 'view_logs' as any },
+            { id: 'setup_cicd', label: '🔄 Set Up CI/CD', type: 'button', actions: 'setup_cicd' as any },
           ] : undefined,
           metadata: { type: 'deployment_complete', url: deployedUrl },
-          // ✅ CRITICAL: Pass deploymentUrl directly for confetti detection
           ...(deployedUrl ? { deploymentUrl: deployedUrl } : {})
         } as any);
         break;
 
       case 'error':
         setIsTyping(false);
+        const errorMsg = (serverMessage as any).content || (serverMessage as any).message || 'An unknown error occurred';
+        setActiveDeployment((prev) => {
+          if (!prev || prev.status === 'failed' || prev.status === 'success') return prev;
+          return {
+            ...prev,
+            status: 'failed',
+            stages: prev.stages.map(s => {
+              if (s.id === prev.currentStage || s.status === 'in-progress') {
+                return { ...s, status: 'error', message: errorMsg };
+              }
+              return s;
+            })
+          };
+        });
         addAssistantMessage({
-          content: `❌ **Error:** ${(serverMessage as any).message}`,
+          content: `❌ **Error:** ${errorMsg}`,
           metadata: { type: 'error' }
         });
         break;
+
+      default:
+        console.warn('Unknown message type:', serverMessage.type);
     }
-  }, [addAssistantMessage, thoughtBuffer]);
+  };
+
+  const handleServerMessage = useCallback((serverMessage: ServerMessage) => {
+    // Direct pass-through for critical/simple messages if needed, OR queue everything
+    // We Queue Everything for perfect sequencing
+    enqueueItem(serverMessage);
+  }, [enqueueItem]);
 
   useEffect(() => {
     const unsub = client.onMessage(handleServerMessage);
@@ -502,6 +650,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     switchSession,
     renameSession,
     resetSession,
+    isChatWindowOpen,
+    toggleChatWindow,
   };
 
   return (

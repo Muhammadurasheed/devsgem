@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { WebSocketProvider } from "@/contexts/WebSocketContext";
+import { WebSocketProvider, useWebSocketContext } from "@/contexts/WebSocketContext";
 import Index from "./pages/Index";
 import Deploy from "./pages/Deploy";
 import Dashboard from "./pages/Dashboard";
@@ -12,6 +12,9 @@ import Usage from "./pages/Usage";
 import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
 import Analytics from "./pages/Analytics";
+import EnvManager from "./pages/EnvManager";
+import Monitor from "./pages/Monitor";
+import DeploymentDetails from "./pages/DeploymentDetails";
 import NotFound from "./pages/NotFound";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import ChatWidget from "@/components/ChatWidget";
@@ -86,6 +89,30 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/dashboard/env-manager/:deploymentId"
+                element={
+                  <ProtectedRoute>
+                    <EnvManager />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/monitor/:deploymentId"
+                element={
+                  <ProtectedRoute>
+                    <Monitor />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/deployments/:deploymentId"
+                element={
+                  <ProtectedRoute>
+                    <DeploymentDetails />
+                  </ProtectedRoute>
+                }
+              />
 
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
@@ -98,7 +125,7 @@ const App = () => (
 );
 
 const ChatWidgetWrapper = () => {
-  const [isChatOpen, setIsChatOpen] = useState(false);
+  const { isChatWindowOpen, toggleChatWindow } = useWebSocketContext();
 
   const handleToggle = () => {
     // Auth check before opening
@@ -106,14 +133,14 @@ const ChatWidgetWrapper = () => {
     const isEmailAuth = localStorage.getItem('servergem_user');
     const isGoogleAuth = localStorage.getItem('servergem_google_user');
 
-    if (!isChatOpen && !isGithubAuth && !isEmailAuth && !isGoogleAuth) {
+    if (!isChatWindowOpen && !isGithubAuth && !isEmailAuth && !isGoogleAuth) {
       window.location.href = '/auth';
       return;
     }
-    setIsChatOpen(!isChatOpen);
+    toggleChatWindow();
   };
 
-  return <ChatWidget isOpen={isChatOpen} onToggle={handleToggle} />;
+  return <ChatWidget isOpen={isChatWindowOpen} onToggle={handleToggle} />;
 };
 
 export default App;

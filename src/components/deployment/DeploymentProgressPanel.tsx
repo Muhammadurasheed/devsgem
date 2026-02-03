@@ -52,16 +52,34 @@ export function DeploymentProgressPanel({
     );
   }
 
-  // Trigger Confetti on Success
+  // [FAANG] Trigger Confetti: Premium Side Canons (Apple-style)
   useEffect(() => {
     if (progress.status === 'success') {
       import('canvas-confetti').then((confetti) => {
-        confetti.default({
-          particleCount: 200,
-          spread: 80,
-          origin: { y: 0.6 },
-          colors: ['#22c55e', '#a855f7', '#3b82f6', '#f59e0b'] // Green, Purple, Blue, Amber
-        });
+        const duration = 2 * 1000;
+        const end = Date.now() + duration;
+        const colors = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981'];
+
+        (function frame() {
+          confetti.default({
+            particleCount: 2,
+            angle: 60,
+            spread: 55,
+            origin: { x: 0 },
+            colors: colors
+          });
+          confetti.default({
+            particleCount: 2,
+            angle: 120,
+            spread: 55,
+            origin: { x: 1 },
+            colors: colors
+          });
+
+          if (Date.now() < end) {
+            requestAnimationFrame(frame);
+          }
+        }());
       });
     }
   }, [progress.status]);

@@ -42,7 +42,14 @@ class CodeAnalyzerAgent:
             genai.configure(api_key=gemini_api_key)
             self.model = genai.GenerativeModel('gemini-2.0-flash-001')
     
-    async def analyze_project(self, project_path: str, progress_notifier=None, progress_callback=None, skip_ai=False) -> Dict:
+    async def analyze_project(
+        self, 
+        project_path: str, 
+        progress_notifier=None, 
+        progress_callback=None, 
+        skip_ai=False,
+        abort_event: Optional[asyncio.Event] = None # [FAANG]
+    ) -> Dict:
         """Analyze project structure and configuration with real-time progress updates"""
         
         project_path = Path(project_path)
@@ -85,7 +92,22 @@ class CodeAnalyzerAgent:
                 'entry_point': 'Auto-detected',
                 'heuristic_report': heuristic_report
             }
-        
+        # [FAANG] Emergency Abort Check
+        if abort_event and abort_event.is_set():
+            return {'error': 'Analysis aborted by user'}
+
+        if progress_notifier:
+            await progress_notifier.send_thought("Initializing semantic project traversal... mapping filesystem topology.")
+            await progress_notifier.send_thought(f"Detected {len(file_structure['files'])} nodes. Constructing dependency graph hierarchy...")
+            
+            # Context-aware thoughts based on heuristics
+            if heuristic_report.get('framework') != 'unknown':
+                await progress_notifier.send_thought(f"Heuristic Engine isolated candidate framework: `{heuristic_report['framework']}` ({int(heuristic_report['confidence']*100)}% confidence).")
+                await progress_notifier.send_thought(f"Parsing AST and manifest files to validate `{heuristic_report['framework']}` signatures...")
+            
+            await progress_notifier.send_thought("Scanning entry points for specific Cloud Run compatibility signatures...")
+            await progress_notifier.send_thought("Calculating memory overhead and CPU requirements from package ecosystem...")
+            
         # Use Gemini to intelligently analyze the project, feeding it heuristic signals
         analysis_prompt = self._build_analysis_prompt(file_structure, project_path, heuristic_report)
         
@@ -309,12 +331,20 @@ class CodeAnalyzerAgent:
             if 'fastify' in deps: add_score('fastify', 80, 'Core dependency')
             if 'vue' in deps and 'nuxt' in deps: add_score('nuxtjs', 100, 'Core dependency')
             
-            # Generic Frontend Detection (Angular, Vue, Svelte, etc.)
+            # Generic Frontend Detection (Angular, Vue, Svelte, React, etc.)
             # If no meta-framework (Next/Nuxt) is found, but frontend libs exist
-            frontend_libs = ['@angular/core', 'vue', 'svelte', 'react'] 
+            if 'react' in deps or 'react' in dev_deps:
+                # [FAANG] Report 'react' as primary framework, track build tool as metadata
+                add_score('react', 100, 'React detected as primary framework')
+                if 'vite' in deps or 'vite' in dev_deps:
+                    add_score('react', 10, 'Vite build tool bonus')  # Boost React score
+                elif 'react-scripts' in deps or 'react-scripts' in dev_deps:
+                    add_score('react', 10, 'CRA build tool bonus')  # Boost React score
+
+            frontend_libs = ['@angular/core', 'vue', 'svelte'] 
             if any(lib in deps or lib in dev_deps for lib in frontend_libs):
-                # Only add if no specific framework claimed it yet (like Next.js claiming React)
-                if not any(f in framework_scores for f in ['nextjs', 'nuxtjs', 'sveltekit', 'remix', 'astro']):
+                # Only add if no specific framework claimed it yet
+                if not any(f in framework_scores for f in ['nextjs', 'nuxtjs', 'sveltekit', 'remix', 'astro', 'react']):
                      add_score('frontend_generic', 60, 'Frontend library detected')
 
         if 'requirements.txt' in file_structure['config_files']:
@@ -373,24 +403,49 @@ class CodeAnalyzerAgent:
             lang = 'python' if (project_path / 'requirements.txt').exists() or list(project_path.glob('*.py')) else \
                    'node' if (project_path / 'package.json').exists() or list(project_path.glob('*.js')) else \
                    'golang' if (project_path / 'go.mod').exists() or list(project_path.glob('*.go')) else 'unknown'
-            return {'framework': 'unknown', 'language': lang, 'confidence': 0, 'signals': []}
+            return {
+                'framework': 'unknown', 
+                'language': lang, 
+                'port': self._detect_port(project_path, file_structure),
+                'confidence': 0, 
+                'signals': []
+            }
             
         winner = max(framework_scores, key=framework_scores.get)
         total_score = framework_scores[winner]
         confidence = min(total_score / 100.0, 1.0) # Cap at 1.0
         
         # 5. Language Inference
-        language = 'node' if winner in ['express', 'nestjs', 'nextjs', 'remix', 'sveltekit', 'astro', 'fastify', 'nuxtjs', 'frontend_generic'] else \
+        language = 'node' if winner in ['express', 'nestjs', 'nextjs', 'remix', 'sveltekit', 'astro', 'fastify', 'nuxtjs', 'frontend_generic', 'vite', 'cra', 'react'] else \
                    'python' if winner in ['fastapi', 'flask', 'django'] else \
                    'golang' if winner in ['gin', 'echo', 'fiber', 'buffalo', 'go_generic'] else \
                    'php' if winner in ['laravel', 'symfony', 'php_generic'] else \
                    'ruby' if winner in ['rails', 'ruby_generic'] else \
-                   'java' if winner in ['springboot', 'java_generic'] else 'unknown'
+                   'java' if winner == 'springboot' else 'unknown'
         
         # 6. Metadata Extraction
         runtime_version = engines.get('node') or engines.get('python') or 'unknown'
         
         is_monorepo = any(f in file_structure['files'] for f in ['pnpm-workspace.yaml', 'lerna.json', 'turbo.json'])
+        
+        # [FAANG] Detect build tool separately for React projects
+        build_tool = None
+        if winner == 'react':
+            if 'vite' in deps or 'vite' in dev_deps:
+                build_tool = 'vite'
+            elif 'react-scripts' in deps or 'react-scripts' in dev_deps:
+                build_tool = 'cra'
+        # [FAANG] Determine build_output based on framework and build tool
+        if winner == 'react':
+            build_output = 'dist' if build_tool == 'vite' else 'build'
+        elif winner in ['nestjs', 'vite']:
+            build_output = 'dist'
+        elif winner == 'cra':
+            build_output = 'build'
+        elif winner == 'nextjs':
+            build_output = '.next'
+        else:
+            build_output = 'build'
         
         return {
             'framework': winner,
@@ -398,8 +453,10 @@ class CodeAnalyzerAgent:
             'confidence': confidence,
             'signals': detected_signals,
             'runtime_version': runtime_version,
+            'build_tool': build_tool,
             'is_monorepo': is_monorepo,
-            'build_output': 'dist' if winner in ['nestjs', 'vite'] else '.next' if winner == 'nextjs' else 'build',
+            'build_output': build_output,
+            'port': self._detect_port(project_path, file_structure),
             'scores': framework_scores
         }
 
@@ -518,7 +575,7 @@ Return ONLY valid JSON, no markdown or explanations.
             'language': 'unknown',
             'framework': base_framework,
             'entry_point': None,
-            'port': 8080,
+            'port': self._detect_port(project_path, file_structure),
             'health_check_path': '/',
             'health_check_type': 'http',
             'memory_limit': '512Mi',
@@ -566,16 +623,24 @@ Return ONLY valid JSON, no markdown or explanations.
                     analysis['framework'] = 'nestjs'
                     analysis['build_output'] = 'dist'
                     print(f"[CodeAnalyzer] ✅ Detected NestJS, build_output='dist'")
-                elif 'express' in deps:
-                    analysis['framework'] = 'express'
                 elif 'next' in deps:
                     analysis['framework'] = 'nextjs'
+                    analysis['build_output'] = '.next'
+                elif 'express' in deps:
+                    analysis['framework'] = 'express'
                 elif 'fastify' in deps:
                     analysis['framework'] = 'fastify'
+                elif 'vite' in deps or 'vite' in dev_deps:
+                    analysis['framework'] = 'vite'
+                    analysis['build_output'] = 'dist'
+                elif 'react-scripts' in deps or 'react-scripts' in dev_deps:
+                    analysis['framework'] = 'cra'
+                    analysis['build_output'] = 'build'
                 elif analysis['framework'] == 'unknown':
-                    # If we didn't detect CRA/Vite above but have react, use vite template
+                    # [FAANG] If we didn't detect CRA/Vite above but have react, use react as framework
                     if 'react' in deps or 'react-dom' in deps:
-                        analysis['framework'] = 'vite'
+                        analysis['framework'] = 'react'
+                        analysis['build_output'] = 'dist'
             except Exception as e:
                 print(f"[CodeAnalyzer] Warning: Could not parse package.json: {e}")
         
@@ -597,7 +662,96 @@ Return ONLY valid JSON, no markdown or explanations.
         analysis['env_vars'] = self._extract_env_vars(project_path)
         analysis['dockerfile_exists'] = (project_path / 'Dockerfile').exists()
         
+        # [FAANG] Port sensing
+        analysis['port'] = self._detect_port(project_path, file_structure)
+        
         return analysis
+
+    def _detect_port(self, project_path: Path, file_structure: Dict) -> dict:
+        """
+        FAANG-Level Port Sensing Logic with Dual Port Detection
+        Returns both dev_port (local development) and deploy_port (Cloud Run production)
+        
+        Priority:
+        1. Check .env files for PORT
+        2. Scan package.json scripts
+        3. Simple regex scan of entry files
+        4. Framework defaults (dev vs deploy)
+        """
+        dev_port = None
+        deploy_port = 8080  # Cloud Run standard
+        
+        # 1. Environment Overrides (Highest priority as they usually mean developer intention)
+        env_files = ['.env', '.env.local', '.env.example']
+        for env_file in env_files:
+            env_path = project_path / env_file
+            if env_path.exists():
+                try:
+                    content = env_path.read_text()
+                    match = re.search(r'^PORT\s*=\s*(\d+)', content, re.MULTILINE)
+                    if match:
+                        p = int(match.group(1))
+                        print(f"[CodeAnalyzer] Detected PORT from {env_file}: {p}")
+                        dev_port = p
+                        break
+                except: pass
+
+        # 2. Package.json scripts (e.g. "start": "next start -p 3000")
+        if 'package.json' in file_structure['config_files']:
+            try:
+                pkg = json.loads((project_path / 'package.json').read_text())
+                scripts = pkg.get('scripts', {}).values()
+                for script in scripts:
+                    match = re.search(r'--port\s+(\d+)|-p\s+(\d+)', script)
+                    if match:
+                        p = int(match.group(1) or match.group(2))
+                        print(f"[CodeAnalyzer] Detected PORT from scripts: {p}")
+                        if not dev_port:
+                            dev_port = p
+                        break
+                
+                # Dependencies-based defaults for dev_port
+                deps = pkg.get('dependencies', {})
+                dev_deps = pkg.get('devDependencies', {})
+                
+                if not dev_port:
+                    # [FAANG] Vite uses 5173 by default for development
+                    if 'vite' in deps or 'vite' in dev_deps:
+                        dev_port = 5173
+                        print(f"[CodeAnalyzer] Vite detected - dev_port: 5173, deploy_port: 8080")
+                    elif 'next' in deps:
+                        dev_port = 3000
+                    elif '@nestjs/core' in deps:
+                        dev_port = 3000
+                    elif 'express' in deps:
+                        dev_port = 3000
+                    elif 'fastify' in deps:
+                        dev_port = 3000
+            except: pass
+
+        # 3. Python Hardcodes (Top level)
+        for py_file in ['main.py', 'app.py', 'manage.py']:
+            if py_file in file_structure['files']:
+                try:
+                    content = (project_path / py_file).read_text()
+                    # Check for uvicorn/flask port=...
+                    match = re.search(r'port\s*=\s*(\d+)', content)
+                    if match:
+                        p = int(match.group(1))
+                        print(f"[CodeAnalyzer] Detected PORT in {py_file}: {p}")
+                        if not dev_port:
+                            dev_port = p
+                        break
+                except: pass
+
+        # 4. Default fallback
+        if not dev_port:
+            dev_port = deploy_port
+        
+        return {
+            'dev_port': dev_port,
+            'deploy_port': deploy_port
+        }
 
     def summarize_project(self, project_path: str) -> str:
         """Create a compressed semantic summary of the project for LLM context"""

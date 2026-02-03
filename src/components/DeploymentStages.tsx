@@ -1,30 +1,39 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { GitBranch, Search, MonitorPlay, Cloud, Globe, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
+import { GitBranch, Search, FileCode, Settings, Shield, Package, Cloud, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import '@/styles/transformation.css';
-import confetti from 'canvas-confetti';
 import { useEffect, useState } from 'react';
 
 interface DeploymentStagesProps {
     currentStage: string;
     progress: number;
+    // FAANG-LEVEL: Accept stage statuses for accurate checkmark rendering
+    stageStatuses?: { id: string; status: string }[];
 }
 
+// ✅ PRINCIPAL FIX: STAGES now match backend DEPLOYMENT_STAGES exactly (7 stages)
 export const STAGES = [
-    { id: 'REPO_CLONE', label: 'Clone Repository', icon: GitBranch, description: 'Fetching your code...' },
-    { id: 'CODE_ANALYSIS', label: 'Analyze Code', icon: Search, description: 'Understanding structure...' },
-    { id: 'BUILD_IMAGE', label: 'Build Solution', icon: MonitorPlay, description: 'Creating container...' },
-    { id: 'DEPLOY_SERVICE', label: 'Deploying', icon: Cloud, description: 'Launching to cloud...' },
-    { id: 'COMPLETE', label: 'Live Access', icon: Globe, description: 'Ready for users!' },
+    { id: 'repo_access', label: 'Repository', icon: GitBranch, description: 'Fetching your code...' },
+    { id: 'code_analysis', label: 'Analysis', icon: Search, description: 'Understanding structure...' },
+    { id: 'dockerfile_generation', label: 'Dockerfile', icon: FileCode, description: 'Creating container recipe...' },
+    { id: 'env_vars', label: 'Env Config', icon: Settings, description: 'Configuring secrets...' },
+    { id: 'security_scan', label: 'Security', icon: Shield, description: 'Scanning vulnerabilities...' }, // ✅ SYNCED with Backend
+    { id: 'container_build', label: 'Build', icon: Package, description: 'Building image...' },
+    { id: 'cloud_deployment', label: 'Deploy', icon: Cloud, description: 'Launching to cloud...' },
 ];
 
-export const DeploymentStages = ({ currentStage, progress }: DeploymentStagesProps) => {
+export const DeploymentStages = ({ currentStage, progress, stageStatuses }: DeploymentStagesProps) => {
 
     const [elapsedTime, setElapsedTime] = useState('00:00');
     const [startTime] = useState(Date.now());
 
+    // ✅ FAANG-LEVEL: Check if deployment is fully complete
+    const isDeploymentComplete = currentStage === 'success' ||
+        currentStage.toLowerCase().includes('complete') ||
+        stageStatuses?.find(s => s.id === 'cloud_deployment')?.status === 'success';
+
     useEffect(() => {
-        if (currentStage === 'COMPLETE' || currentStage.includes('SUCCESS')) return;
+        if (isDeploymentComplete) return;
 
         const interval = setInterval(() => {
             const seconds = Math.floor((Date.now() - startTime) / 1000);
@@ -34,65 +43,39 @@ export const DeploymentStages = ({ currentStage, progress }: DeploymentStagesPro
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [currentStage, startTime]);
+    }, [isDeploymentComplete, startTime]);
 
-    // Robust Active Index Logic - Maps backend stage IDs to UI pipeline steps
+    // ✅ PRINCIPAL FIX: Direct index lookup from STAGES array (no more string matching)
     const getStepIndex = (stage: string) => {
         if (!stage) return 0;
-        const s = stage.toUpperCase();
+        const s = stage.toLowerCase();
 
-        // Completed states override everything (index 5 = beyond last stage)
-        if (s.includes('COMPLETE') || s.includes('SUCCESS') || s.includes('LIVE')) return 5;
+        // Check for completion states
+        if (s === 'success' || s.includes('complete') || s.includes('live')) {
+            return STAGES.length; // Beyond last stage = complete
+        }
 
-        // Stage 0: Repository Clone
-        if (s.includes('CLONE') || s.includes('REPO')) return 0;
+        // Direct lookup by ID
+        const index = STAGES.findIndex(stg => stg.id === s);
+        return index >= 0 ? index : 0;
+    };
 
-        // Stage 1: Code Analysis (includes dockerfile generation)
-        if (s.includes('ANALYSIS') || s.includes('ANALYZE') || s.includes('CODE_ANALYSIS') ||
-            s.includes('DOCKERFILE')) return 1;
+    // ✅ FAANG-LEVEL: Get stage status from context or infer from index
+    const getStageStatus = (stageId: string, index: number) => {
+        // First, check if we have explicit status from props
+        const explicit = stageStatuses?.find(s => s.id === stageId);
+        if (explicit) return explicit.status;
 
-        // Stage 2: Build (includes security scan, docker build, kaniko, container build)
-        if (s.includes('BUILD') || s.includes('DOCKER') || s.includes('CONTAINER') ||
-            s.includes('SECURITY') || s.includes('KANIKO') || s.includes('IMAGE')) return 2;
-
-        // Stage 3: Deploy (includes provisioning, health check, service creation)
-        if (s.includes('DEPLOY') || s.includes('PROVISION') || s.includes('CLOUD') ||
-            s.includes('HEALTH') || s.includes('VERIFY') || s.includes('SERVICE') ||
-            s.includes('ENV_VARS') || s.includes('IAM')) return 3;
-
-        return 0;
+        // Fallback: infer from current stage index
+        const activeIndex = getStepIndex(currentStage);
+        if (index < activeIndex) return 'success';
+        if (index === activeIndex) return 'in-progress';
+        return 'waiting';
     };
 
     const activeIndex = getStepIndex(currentStage);
-    const isSuccess = activeIndex >= 4; // Completion state
+    const isSuccess = isDeploymentComplete || activeIndex >= STAGES.length;
 
-    useEffect(() => {
-        if (isSuccess) {
-            const end = Date.now() + 3 * 1000;
-            const colors = ['#3B82F6', '#8B5CF6', '#F472B6'];
-
-            (function frame() {
-                confetti({
-                    particleCount: 5,
-                    angle: 60,
-                    spread: 55,
-                    origin: { x: 0 },
-                    colors: colors
-                });
-                confetti({
-                    particleCount: 5,
-                    angle: 120,
-                    spread: 55,
-                    origin: { x: 1 },
-                    colors: colors
-                });
-
-                if (Date.now() < end) {
-                    requestAnimationFrame(frame);
-                }
-            }());
-        }
-    }, [isSuccess]);
 
     return (
         <div className="w-full py-8 px-4">
@@ -119,8 +102,11 @@ export const DeploymentStages = ({ currentStage, progress }: DeploymentStagesPro
                 </div>
 
                 {STAGES.map((stage, index) => {
-                    const isActive = index === activeIndex;
-                    const isCompleted = index < activeIndex || isSuccess; // ✅ Logic Fix: All stages complete if success
+                    // ✅ FAANG-LEVEL: Use actual status from props, not just index inference
+                    const stageStatus = getStageStatus(stage.id, index);
+                    const isActive = stageStatus === 'in-progress';
+                    const isCompleted = stageStatus === 'success' || isSuccess;
+                    const isError = stageStatus === 'error';
 
                     const Icon = stage.icon;
 
@@ -136,17 +122,27 @@ export const DeploymentStages = ({ currentStage, progress }: DeploymentStagesPro
                                 initial={false}
                                 animate={{
                                     scale: isActive ? 1.25 : 1,
-                                    backgroundColor: isCompleted ? "hsl(var(--primary))" : isActive ? "hsl(var(--background))" : "hsl(var(--secondary))",
-                                    borderColor: isCompleted ? "hsl(var(--primary))" : isActive ? "hsl(var(--primary))" : "hsl(var(--border))"
+                                    backgroundColor: isError ? "hsl(0 84% 60%)" : isCompleted ? "hsl(var(--primary))" : isActive ? "hsl(var(--background))" : "hsl(var(--secondary))",
+                                    borderColor: isError ? "hsl(0 84% 60%)" : isCompleted ? "hsl(var(--primary))" : isActive ? "hsl(var(--primary))" : "hsl(var(--border))"
                                 }}
                                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
                                 className={cn(
                                     "w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all duration-300 shadow-lg relative",
-                                    isActive && "ring-4 ring-primary/20 border-primary"
+                                    isActive && "ring-4 ring-primary/20 border-primary",
+                                    isError && "ring-4 ring-red-500/20 border-red-500"
                                 )}
                             >
                                 <AnimatePresence mode="wait">
-                                    {isCompleted ? (
+                                    {isError ? (
+                                        <motion.div
+                                            key="error"
+                                            initial={{ scale: 0, opacity: 0 }}
+                                            animate={{ scale: 1, opacity: 1 }}
+                                            exit={{ scale: 0, opacity: 0 }}
+                                        >
+                                            <XCircle className="w-6 h-6 text-white" />
+                                        </motion.div>
+                                    ) : isCompleted ? (
                                         <motion.div
                                             key="check"
                                             initial={{ scale: 0, opacity: 0 }}

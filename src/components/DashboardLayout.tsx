@@ -84,7 +84,7 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           </button>
           <div className="flex items-center gap-2">
             <Logo size={32} />
-            <span className="text-lg font-bold gradient-text">ServerGem</span>
+            <span className="text-lg font-bold gradient-text"></span>
           </div>
           <div className="w-10" /> {/* Spacer for centering */}
         </div>
@@ -101,7 +101,7 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
         {/* Logo - Desktop */}
         <div className="hidden md:flex items-center gap-2 px-6 py-4 border-b border-border/40">
           <Logo size={40} />
-          <span className="text-xl font-bold gradient-text">ServerGem</span>
+          <span className="text-xl font-bold gradient-text">DevGem</span>
         </div>
 
         {/* Navigation */}

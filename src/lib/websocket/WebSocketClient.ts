@@ -225,6 +225,26 @@ export class WebSocketClient {
     localStorage.setItem('servergem_session_id', sessionId);
   }
 
+  /**
+   * Update user identity on active connection
+   * [FAANG] prevents "user_default" orphans by syncing identity post-login
+   */
+  public updateUser(user: any): void {
+    if (!this.isConnected()) {
+      // If not connected, the init message will pick it up on connect
+      return; 
+    }
+    
+    console.log('[WebSocket] 👤 Updating user identity:', user?.id);
+    this.sendMessage({
+      type: 'identify',
+      user_id: user?.id,
+      user: user,
+      session_id: this.sessionId,
+      timestamp: new Date().toISOString()
+    });
+  }
+
   // ========================================================================
   // Private Methods - WebSocket Event Handlers
   // ========================================================================
@@ -249,9 +269,22 @@ export class WebSocketClient {
     this.reconnectAttempts = 0;
     this.updateConnectionStatus('connected', undefined, wasReconnect ? 1 : 0);
 
-    // Send init message with persistent session_id
+    // Send init message with persistent session_id and authenticated user_id
+    // [FAANG] Unify identity by propagating local user info to backend
+    const storedUser = localStorage.getItem('servergem_user');
+    let user = null;
+    try {
+      if (storedUser) {
+        user = JSON.parse(storedUser);
+      }
+    } catch (e) {
+      console.warn('[WebSocket] Failed to parse stored user for identity unification', e);
+    }
+
     this.sendMessage({
       type: 'init',
+      user_id: user?.id, // CRITICAL: Bridges the auth-persistence gap
+      user: user, // [FAANG] Pass full user info for auto-registration
       session_id: this.sessionId, // This persists across reconnections!
       instance_id: this.instanceId, // For debugging
       is_reconnect: wasReconnect, // Now correctly reports reconnections!

@@ -3,34 +3,53 @@
  * Shows all user's deployed services with real-time status
  */
 
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Rocket, 
-  ExternalLink, 
-  Settings, 
-  RotateCw, 
+import {
+  Rocket,
+  ExternalLink,
+  Settings,
   Trash2,
   Activity,
-  Clock,
-  TrendingUp,
-  Plus,
-  Globe,
   Zap,
+  TrendingUp,
   Loader2,
-  ArrowLeft,
-  Home
+  Globe,
+  RefreshCw,
+  Plus,
+  Home,
+  Clock,
+  Key,
+  LayoutDashboard
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDeployments } from '@/hooks/useDeployments';
+import { useWebSocketContext } from '@/contexts/WebSocketContext';
 import { formatDistanceToNow } from 'date-fns';
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { deployments, isLoading, error, deleteDeployment } = useDeployments();
+  const { deployments, isLoading, error, deleteDeployment, refresh } = useDeployments();
+  const { toggleChatWindow, sendMessage, onMessage } = useWebSocketContext();
+
+  // [FAANG] Automated State Synchronization
+  useEffect(() => {
+    const unsubscribe = onMessage((message) => {
+      // [PERFORMANCE] Only full refresh on completion or status change
+      // 'deployment_progress' is too frequent (~100/sec) and causes flickering
+      if (message.type === 'deployment_complete' || message.type === 'status_change') {
+        refresh();
+      }
+      // Note: progress updates should be handled by individual components subscribing
+      // to the websocket context if they need granular progress bars
+    });
+
+    return () => unsubscribe();
+  }, [onMessage, refresh]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -51,8 +70,37 @@ const Dashboard = () => {
   };
 
   const handleRedeploy = async (deploymentId: string, name: string) => {
-    toast.info(`Redeploying ${name}...`);
-    // Implementation in Phase 3
+    toast.info(`Initiating redeployment for ${name}...`);
+    toggleChatWindow(true);
+    // Add small delay to allow chat window to mount/animate
+    setTimeout(() => {
+      sendMessage({
+        type: 'message',
+        message: `Redeploy service: ${name} (ID: ${deploymentId})`,
+        context: {
+          action: 'redeploy',
+          deploymentId,
+          serviceName: name
+        }
+      });
+    }, 500);
+  };
+
+  const handleSync = async (deploymentId: string, name: string, repoUrl: string) => {
+    toast.info(`Syncing ${name} with GitHub & Updating...`);
+    toggleChatWindow(true);
+    setTimeout(() => {
+      sendMessage({
+        type: 'message',
+        message: `Sync & Update: ${name}`,
+        metadata: {
+          type: 'sync_deploy',
+          deploymentId,
+          serviceName: name,
+          repoUrl
+        }
+      });
+    }, 500);
   };
 
   const handleDelete = async (deploymentId: string, name: string) => {
@@ -91,9 +139,9 @@ const Dashboard = () => {
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Back Navigation */}
         <div className="mb-6">
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => navigate('/')}
             className="gap-2"
           >
@@ -129,7 +177,7 @@ const Dashboard = () => {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -143,7 +191,7 @@ const Dashboard = () => {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -155,7 +203,7 @@ const Dashboard = () => {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -200,13 +248,18 @@ const Dashboard = () => {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <div className={`w-3 h-3 rounded-full ${getStatusColor(deployment.status)}`} />
-                        <CardTitle className="text-xl">{deployment.service_name}</CardTitle>
+                        <CardTitle
+                          className="text-xl cursor-pointer hover:text-primary transition-colors"
+                          onClick={() => navigate(`/dashboard/deployments/${deployment.id}`)}
+                        >
+                          {deployment.service_name}
+                        </CardTitle>
                       </div>
                       <CardDescription className="flex items-center gap-2">
                         <Globe className="w-4 h-4" />
-                        <a 
-                          href={deployment.url} 
-                          target="_blank" 
+                        <a
+                          href={deployment.url}
+                          target="_blank"
                           rel="noopener noreferrer"
                           className="text-primary hover:underline"
                         >
@@ -215,7 +268,7 @@ const Dashboard = () => {
                         <ExternalLink className="w-3 h-3" />
                       </CardDescription>
                     </div>
-                    
+
                     <div className="flex items-center gap-2">
                       <Button
                         variant="ghost"
@@ -228,10 +281,36 @@ const Dashboard = () => {
                       <Button
                         variant="ghost"
                         size="sm"
+                        onClick={() => handleSync(deployment.id, deployment.service_name, deployment.repo_url)}
+                        disabled={deployment.status === 'deploying'}
+                        title="Sync with Git & Redeploy"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleRedeploy(deployment.id, deployment.service_name)}
                         disabled={deployment.status === 'deploying'}
+                        title="Redeploy (Cached)"
                       >
-                        <RotateCw className="w-4 h-4" />
+                        <Rocket className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigate(`/dashboard/env-manager/${deployment.id}`)}
+                        title="Environment Variables"
+                      >
+                        <Key className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigate(`/dashboard/monitor/${deployment.id}`)}
+                        title="Real-time Metrics"
+                      >
+                        <Activity className="w-4 h-4" />
                       </Button>
                       <Button
                         variant="ghost"
@@ -248,10 +327,19 @@ const Dashboard = () => {
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigate(`/dashboard/deployments/${deployment.id}`)}
+                        className="text-primary hover:text-primary"
+                        title="View Details"
+                      >
+                        <LayoutDashboard className="w-4 h-4" />
+                      </Button>
                     </div>
                   </div>
                 </CardHeader>
-                
+
                 <CardContent>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
@@ -280,7 +368,7 @@ const Dashboard = () => {
           </div>
         )}
       </div>
-    </DashboardLayout>
+    </DashboardLayout >
   );
 };
 

@@ -6,8 +6,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  BarChart3, Clock, CheckCircle2, XCircle, TrendingUp, 
+import {
+  BarChart3, Clock, CheckCircle2, XCircle, TrendingUp,
   Activity, Zap, AlertTriangle, Calendar, Filter,
   ArrowUpRight, ArrowDownRight, Minus, Rocket,
   ChevronDown, Download
@@ -25,6 +25,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
+import { apiClient } from '@/lib/api/client';
 
 // Types
 interface DeploymentRecord {
@@ -58,68 +60,18 @@ interface AnalyticsData {
   };
 }
 
-// Mock data generator (would be replaced with real API calls)
-function generateMockAnalytics(): AnalyticsData {
-  const stages = ['repo_access', 'code_analysis', 'dockerfile_generation', 'security_scan', 'container_build', 'cloud_deployment'];
-  
-  const recentDeployments: DeploymentRecord[] = Array.from({ length: 15 }, (_, i) => ({
-    id: `deploy-${i + 1}`,
-    timestamp: new Date(Date.now() - i * 3600000 * (Math.random() * 5 + 1)).toISOString(),
-    serviceName: ['ihealth-api', 'energram-backend', 'nexus-frontend', 'data-pipeline'][Math.floor(Math.random() * 4)],
-    repoUrl: `https://github.com/user/repo-${i}`,
-    status: Math.random() > 0.15 ? 'success' : 'failed',
-    duration: Math.floor(Math.random() * 180 + 60),
-    stages: stages.map(s => ({
-      name: s,
-      duration: Math.floor(Math.random() * 30 + 5),
-      status: Math.random() > 0.1 ? 'success' : 'failed'
-    })),
-    errorMessage: Math.random() > 0.85 ? 'Container build failed: dependency not found' : undefined,
-    region: 'us-central1'
-  }));
-
-  const successCount = recentDeployments.filter(d => d.status === 'success').length;
-  const avgTime = recentDeployments.reduce((acc, d) => acc + d.duration, 0) / recentDeployments.length;
-
-  return {
-    totalDeployments: 47,
-    successRate: (successCount / recentDeployments.length) * 100,
-    avgDeployTime: Math.round(avgTime),
-    failurePatterns: [
-      { pattern: 'Dependency resolution failed', count: 3, percentage: 42.9 },
-      { pattern: 'Container build timeout', count: 2, percentage: 28.6 },
-      { pattern: 'Health check failed', count: 1, percentage: 14.3 },
-      { pattern: 'Resource quota exceeded', count: 1, percentage: 14.3 },
-    ],
-    deploymentsByDay: Array.from({ length: 7 }, (_, i) => ({
-      date: new Date(Date.now() - (6 - i) * 86400000).toLocaleDateString('en-US', { weekday: 'short' }),
-      success: Math.floor(Math.random() * 8 + 2),
-      failed: Math.floor(Math.random() * 2)
-    })),
-    recentDeployments,
-    stagePerformance: stages.map(s => ({
-      stage: s.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-      avgTime: Math.floor(Math.random() * 45 + 5),
-      failureRate: Math.random() * 15
-    })),
-    trends: {
-      successRateTrend: 'up',
-      deployTimeTrend: 'down',
-      volumeTrend: 'up'
-    }
-  };
-}
+// Mock data generator removed - using real API
 
 // Components
-function StatCard({ 
-  title, 
-  value, 
-  subtitle, 
-  icon: Icon, 
-  trend, 
+function StatCard({
+  title,
+  value,
+  subtitle,
+  icon: Icon,
+  trend,
   trendValue,
   variant = 'default'
-}: { 
+}: {
   title: string;
   value: string | number;
   subtitle?: string;
@@ -129,7 +81,7 @@ function StatCard({
   variant?: 'default' | 'success' | 'danger';
 }) {
   const TrendIcon = trend === 'up' ? ArrowUpRight : trend === 'down' ? ArrowDownRight : Minus;
-  const trendColor = variant === 'success' 
+  const trendColor = variant === 'success'
     ? (trend === 'up' ? 'text-green-400' : 'text-red-400')
     : variant === 'danger'
       ? (trend === 'down' ? 'text-green-400' : 'text-red-400')
@@ -156,20 +108,20 @@ function StatCard({
               <p className="text-xs text-muted-foreground">{subtitle}</p>
             )}
           </div>
-          
+
           <div className={cn(
             "p-3 rounded-xl",
-            variant === 'success' ? "bg-green-500/10" : 
-            variant === 'danger' ? "bg-red-500/10" : "bg-primary/10"
+            variant === 'success' ? "bg-green-500/10" :
+              variant === 'danger' ? "bg-red-500/10" : "bg-primary/10"
           )}>
             <Icon className={cn(
               "w-5 h-5",
-              variant === 'success' ? "text-green-400" : 
-              variant === 'danger' ? "text-red-400" : "text-primary"
+              variant === 'success' ? "text-green-400" :
+                variant === 'danger' ? "text-red-400" : "text-primary"
             )} />
           </div>
         </div>
-        
+
         {trend && trendValue && (
           <div className={cn("flex items-center gap-1 mt-4 text-xs", trendColor)}>
             <TrendIcon className="w-3 h-3" />
@@ -177,7 +129,7 @@ function StatCard({
             <span className="text-muted-foreground ml-1">vs last week</span>
           </div>
         )}
-        
+
         {/* Decorative gradient */}
         <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-gradient-to-br from-primary/5 to-transparent rounded-full blur-2xl" />
       </Card>
@@ -187,7 +139,7 @@ function StatCard({
 
 function MiniBarChart({ data }: { data: { date: string; success: number; failed: number }[] }) {
   const maxValue = Math.max(...data.map(d => d.success + d.failed));
-  
+
   return (
     <div className="flex items-end gap-2 h-32">
       {data.map((day, i) => (
@@ -222,7 +174,7 @@ function FailurePatternCard({ patterns }: { patterns: AnalyticsData['failurePatt
         <AlertTriangle className="w-4 h-4 text-orange-400" />
         <h3 className="text-sm font-bold uppercase tracking-wider">Common Failure Patterns</h3>
       </div>
-      
+
       <div className="space-y-3">
         {patterns.map((pattern, i) => (
           <motion.div
@@ -265,14 +217,14 @@ function StagePerformanceTable({ stages }: { stages: AnalyticsData['stagePerform
         <Zap className="w-4 h-4 text-yellow-400" />
         <h3 className="text-sm font-bold uppercase tracking-wider">Stage Performance</h3>
       </div>
-      
+
       <div className="space-y-2">
         <div className="grid grid-cols-3 gap-4 text-xs text-muted-foreground uppercase tracking-wider pb-2 border-b border-border/50">
           <span>Stage</span>
           <span className="text-right">Avg Time</span>
           <span className="text-right">Failure Rate</span>
         </div>
-        
+
         {stages.map((stage, i) => (
           <motion.div
             key={stage.stage}
@@ -285,8 +237,8 @@ function StagePerformanceTable({ stages }: { stages: AnalyticsData['stagePerform
             <span className="text-right font-mono text-muted-foreground">{stage.avgTime}s</span>
             <span className={cn(
               "text-right font-mono",
-              stage.failureRate > 10 ? "text-red-400" : 
-              stage.failureRate > 5 ? "text-yellow-400" : "text-green-400"
+              stage.failureRate > 10 ? "text-red-400" :
+                stage.failureRate > 5 ? "text-yellow-400" : "text-green-400"
             )}>
               {stage.failureRate.toFixed(1)}%
             </span>
@@ -310,7 +262,7 @@ function RecentDeploymentsTable({ deployments }: { deployments: DeploymentRecord
           Export
         </Button>
       </div>
-      
+
       <ScrollArea className="h-[300px]">
         <div className="space-y-2">
           {deployments.map((deployment, i) => (
@@ -331,14 +283,14 @@ function RecentDeploymentsTable({ deployments }: { deployments: DeploymentRecord
                   <XCircle className="w-4 h-4 text-red-400" />
                 )}
               </div>
-              
+
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{deployment.serviceName}</p>
                 <p className="text-xs text-muted-foreground">
                   {new Date(deployment.timestamp).toLocaleString()}
                 </p>
               </div>
-              
+
               <div className="text-right shrink-0">
                 <p className="text-sm font-mono">{Math.floor(deployment.duration / 60)}m {deployment.duration % 60}s</p>
                 <p className="text-xs text-muted-foreground">{deployment.region}</p>
@@ -356,15 +308,25 @@ export default function Analytics() {
   const [timeRange, setTimeRange] = useState('7d');
   const [isLoading, setIsLoading] = useState(true);
 
+  const { user } = useAuth();
+
   useEffect(() => {
-    // Simulate API fetch
-    setIsLoading(true);
-    const timer = setTimeout(() => {
-      setAnalytics(generateMockAnalytics());
-      setIsLoading(false);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [timeRange]);
+    async function fetchAnalytics() {
+      if (!user) return;
+
+      setIsLoading(true);
+      try {
+        const data = await apiClient.getAnalytics(user.id);
+        setAnalytics(data as AnalyticsData);
+      } catch (error) {
+        console.error("Failed to fetch analytics:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchAnalytics();
+  }, [user, timeRange]);
 
   return (
     <DashboardLayout>
@@ -377,7 +339,7 @@ export default function Analytics() {
               Monitor your deployment performance and identify bottlenecks
             </p>
           </div>
-          
+
           <div className="flex items-center gap-3">
             <Select value={timeRange} onValueChange={setTimeRange}>
               <SelectTrigger className="w-32 h-9">
@@ -391,7 +353,7 @@ export default function Analytics() {
                 <SelectItem value="90d">Last 90 days</SelectItem>
               </SelectContent>
             </Select>
-            
+
             <Button variant="outline" size="sm" className="h-9">
               <Filter className="w-3.5 h-3.5 mr-2" />
               Filters
@@ -400,15 +362,34 @@ export default function Analytics() {
         </div>
 
         {isLoading ? (
-          <div className="flex items-center justify-center h-96">
+          <div className="flex items-center justify-center h-96 flex-col gap-4">
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
             >
               <Rocket className="w-8 h-8 text-primary" />
             </motion.div>
+            <p className="text-sm text-muted-foreground animate-pulse">Aggregating deployment telemetry...</p>
           </div>
-        ) : analytics && (
+        ) : !analytics || analytics.totalDeployments === 0 ? (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex flex-col items-center justify-center h-96 border border-dashed border-border/50 rounded-xl bg-card/30 backdrop-blur-sm"
+          >
+            <div className="p-4 rounded-full bg-primary/10 mb-4">
+              <Activity className="w-8 h-8 text-primary/60" />
+            </div>
+            <h3 className="text-lg font-bold">No Deployment Data Yet</h3>
+            <p className="text-sm text-muted-foreground max-w-sm text-center mt-2 mb-6">
+              Deploy your first application to generate insights, or wait for the telemetry engine to process recent activity.
+            </p>
+            <Button onClick={() => window.location.href = '/dashboard'}>
+              <Rocket className="w-4 h-4 mr-2" />
+              Launch New Deployment
+            </Button>
+          </motion.div>
+        ) : (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -469,7 +450,7 @@ export default function Analytics() {
                   </div>
                 </div>
               </Card>
-              
+
               <FailurePatternCard patterns={analytics.failurePatterns} />
             </div>
 

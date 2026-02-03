@@ -20,39 +20,74 @@ class DeploymentProgressTracker:
         self.start_time = datetime.now()
         self.stages: Dict[str, Dict] = {}
         self.current_progress = 0
-        
-    async def emit(self, message: str, stage: Optional[str] = None, progress: Optional[int] = None, logs: Optional[List[str]] = None):
+        self.stage_statuses: Dict[str, str] = {} # Track status per stage
+
+    async def emit(self, message: str, stage: Optional[str] = None, progress: Optional[int] = None, logs: Optional[List[str]] = None, status: Optional[str] = None):
         """
-        Emit a progress message to the frontend.
-        Frontend parser will extract stage information from log patterns.
+        Emit a progress message to the frontend with robust status locking and metric harmonization.
+        [FAANG RECOVERY]: This method is now the single authoritative source for telemetry synchronization.
         """
         if not self.progress_callback:
             return
             
-        # Update progress if provided
-        if progress is not None:
-            self.current_progress = progress
+        target_stage = stage or "container_build"
+        
+        # 🛡️ STATUS LOCK: Once a stage is success/error, don't let it be downgraded by lagging pulses
+        current_status = self.stage_statuses.get(target_stage, 'waiting')
+        
+        # Determine final status
+        requested_status = status or 'in-progress'
+        
+        # [PRINCIPAL FIX]: Success is terminal. Do not downgrade to in-progress.
+        if current_status in ['success', 'error'] and requested_status == 'in-progress':
+            final_status = current_status
+        else:
+            final_status = requested_status
+            self.stage_statuses[target_stage] = final_status
+
+        # [METRIC HARMONIZATION]: Progress is now STAGE-RELATIVE (0-100)
+        # The frontend will map this to global weighted progress.
+        stage_progress = progress if progress is not None else 0
+        if final_status == 'success':
+            stage_progress = 100
             
-        # Emit structured message with error handling for disconnected clients
+        # Emit structured message
         try:
+            # ✅ TERMINAL MIRROR: Re-enabled with extreme safety for Windows (Errno 22)
+            # We strip all non-ASCII characters and use explicit flush
+            safe_msg = "".join(c for c in message if ord(c) < 128)
+            print(f"[DEPLOY] [{target_stage.upper()}] {safe_msg}", flush=True)
+
+            # ✅ BRIDGE SYNC: Emit deployment_progress to update DPMP panel!
+            payload = {
+                "type": "deployment_progress",
+                "deployment_id": self.deployment_id,
+                "stage": target_stage,
+                "status": final_status,
+                "message": message,
+                "progress": stage_progress, # Relative progress!
+                "details": logs or [],
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            await self.progress_callback(payload)
+            
+            # Also keep a copy in the chat for human readability
             await self.progress_callback({
                 'type': 'message',
                 'data': {
                     'content': message,
                     'timestamp': datetime.now().isoformat(),
                     'metadata': {
+                        'type': 'progress',
                         'deployment_id': self.deployment_id,
-                        'service_name': self.service_name,
                         'stage': stage,
-                        'progress': self.current_progress,
-                        'logs': logs or []
+                        'progress': self.current_progress
                     }
                 }
             })
         except Exception as e:
-            # Gracefully handle disconnected clients
             print(f"[DeploymentProgress] Warning: Could not emit progress: {e}")
-            pass
     
     # ========================================================================
     # STAGE 1: Repository Access
@@ -63,15 +98,16 @@ class DeploymentProgressTracker:
         await self.emit(
             f"[GitHubService] Cloning {repo_url}...",
             stage='repo_access',
-            progress=5
+            progress=10 # Relative start
         )
     
     async def complete_repo_clone(self, local_path: str, file_count: int, size_mb: float):
         """Emit: Repository cloning completed"""
         await self.emit(
             f"[GitHubService] Cloning {self.service_name} to {local_path}",
-            stage='repo_access',
-            progress=15
+            stage='repo_access', # FE Standardized ID
+            progress=100,
+            status='success' # Mark as success to stop spinner
         )
         await asyncio.sleep(0.1)
         await self.emit(
@@ -92,7 +128,7 @@ class DeploymentProgressTracker:
         await self.emit(
             f"[AnalysisService] Analyzing project at {project_path}",
             stage='code_analysis',
-            progress=20
+            progress=10
         )
     
     async def emit_framework_detection(self, framework: str, language: str, runtime: str):
@@ -100,7 +136,7 @@ class DeploymentProgressTracker:
         await self.emit(
             f"[AnalysisService] Detected framework: {framework}",
             stage='code_analysis',
-            progress=25
+            progress=40
         )
         await self.emit(
             f"[AnalysisService] Language: {language} ({runtime})",
@@ -112,7 +148,7 @@ class DeploymentProgressTracker:
         await self.emit(
             f"[AnalysisService] Found {dep_count} dependencies",
             stage='code_analysis',
-            progress=30
+            progress=70
         )
         if database:
             await self.emit(
@@ -125,7 +161,8 @@ class DeploymentProgressTracker:
         await self.emit(
             "[AnalysisService] Analysis complete",
             stage='code_analysis',
-            progress=35
+            progress=100,
+            status='success'
         )
     
     # ========================================================================
@@ -137,7 +174,7 @@ class DeploymentProgressTracker:
         await self.emit(
             f"[AnalysisService] Generating Dockerfile for {framework}",
             stage='dockerfile_generation',
-            progress=40
+            progress=20
         )
     
     async def emit_dockerfile_optimization(self, optimizations: List[str]):
@@ -145,7 +182,7 @@ class DeploymentProgressTracker:
         await self.emit(
             "[DockerService] Applying multi-stage build strategy",
             stage='dockerfile_generation',
-            progress=45
+            progress=60
         )
         for opt in optimizations[:2]:
             await self.emit(
@@ -158,11 +195,13 @@ class DeploymentProgressTracker:
         await self.emit(
             f"[DockerService] Dockerfile saved to {dockerfile_path}",
             stage='dockerfile_generation',
-            progress=50
+            progress=100,
+            status='success'
         )
         await self.emit(
             "[DockerService] Dockerfile created successfully",
-            stage='dockerfile_generation'
+            stage='dockerfile_generation',
+            status='success'
         )
     
     # ========================================================================
@@ -174,7 +213,7 @@ class DeploymentProgressTracker:
         await self.emit(
             "[SecurityService] Starting security scan",
             stage='security_scan',
-            progress=55
+            progress=25
         )
     
     async def emit_security_check(self, check_name: str, passed: bool):
@@ -187,17 +226,20 @@ class DeploymentProgressTracker:
     
     async def complete_security_scan(self, issues_found: int):
         """Emit: Security scan completed"""
+        status = 'success' if issues_found == 0 else 'success' # Still success, just with warnings
         if issues_found == 0:
             await self.emit(
                 "[SecurityService] Security scan complete - No vulnerabilities found",
                 stage='security_scan',
-                progress=60
+                progress=100,
+                status='success'
             )
         else:
             await self.emit(
                 f"[SecurityService] Security scan complete - {issues_found} issues detected",
                 stage='security_scan',
-                progress=60
+                progress=100,
+                status='success'
             )
     
     # ========================================================================
@@ -209,7 +251,7 @@ class DeploymentProgressTracker:
         await self.emit(
             f"[DockerService] Building container image: {image_tag}",
             stage='container_build',
-            progress=65
+            progress=10
         )
     
     async def emit_build_step(self, step_num: int, total_steps: int, description: str):
@@ -235,11 +277,13 @@ class DeploymentProgressTracker:
         await self.emit(
             "[CloudBuild] Container image built successfully",
             stage='container_build',
-            progress=80
+            progress=100,
+            status='success'
         )
         await self.emit(
             f"[CloudBuild] Image digest: {image_digest[:20]}...",
-            stage='container_build'
+            stage='container_build',
+            status='success'
         )
     
     async def emit_build_logs(self, logs: List[str]):
@@ -261,7 +305,7 @@ class DeploymentProgressTracker:
         await self.emit(
             f"[GCloudService] Deploying to Cloud Run",
             stage='cloud_deployment',
-            progress=85
+            progress=10
         )
         await self.emit(
             f"[GCloudService] Service: {service_name} | Region: {region}",
@@ -273,7 +317,7 @@ class DeploymentProgressTracker:
         await self.emit(
             f"[GCloudService] Configuration: {cpu} CPU, {memory} RAM",
             stage='cloud_deployment',
-            progress=90
+            progress=40
         )
         await self.emit(
             f"[GCloudService] Concurrency: {concurrency} requests",
@@ -285,7 +329,7 @@ class DeploymentProgressTracker:
         await self.emit(
             f"[GCloudService] Deployment progress: {status}",
             stage='cloud_deployment',
-            progress=95
+            progress=80
         )
     
     async def complete_cloud_deployment(self, service_url: str):
@@ -293,15 +337,18 @@ class DeploymentProgressTracker:
         await self.emit(
             "[GCloudService] Deployment successful",
             stage='cloud_deployment',
-            progress=100
+            progress=100,
+            status='success'
         )
         await self.emit(
             f"[GCloudService] Service URL: {service_url}",
-            stage='cloud_deployment'
+            stage='cloud_deployment',
+            status='success'
         )
         await self.emit(
             "[GCloudService] Auto HTTPS enabled, auto-scaling configured",
-            stage='cloud_deployment'
+            stage='cloud_deployment',
+            status='success'
         )
     
     # ========================================================================
@@ -312,7 +359,8 @@ class DeploymentProgressTracker:
         """Emit: Error occurred during deployment"""
         await self.emit(
             f"[ERROR] {stage}: {error_message}",
-            stage=stage
+            stage=stage,
+            status='error'
         )
     
     async def emit_warning(self, warning_message: str):

@@ -57,34 +57,34 @@ class AuthService {
   async signIn(email: string, password: string): Promise<User> {
     // Simulate auth - replace with real Firebase/Auth provider
     await new Promise(resolve => setTimeout(resolve, 500));
-    
+
     const user: User = {
       id: `user_${Date.now()}`,
       email,
       displayName: email.split('@')[0],
     };
-    
+
     this.currentUser = user;
     localStorage.setItem('servergem_user', JSON.stringify(user));
     this.notifyListeners();
-    
+
     return user;
   }
 
   async signUp(email: string, password: string, displayName?: string): Promise<User> {
     // Simulate auth - replace with real Firebase/Auth provider
     await new Promise(resolve => setTimeout(resolve, 500));
-    
+
     const user: User = {
       id: `user_${Date.now()}`,
       email,
       displayName: displayName || email.split('@')[0],
     };
-    
+
     this.currentUser = user;
     localStorage.setItem('servergem_user', JSON.stringify(user));
     this.notifyListeners();
-    
+
     return user;
   }
 
@@ -100,6 +100,14 @@ class AuthService {
       localStorage.setItem('servergem_user', JSON.stringify(this.currentUser));
       this.notifyListeners();
     }
+  }
+
+  // [FAANG] Identity Unification: Allow external providers (GitHub) to set the core user
+  setExternalUser(user: User) {
+    console.log('[AuthService] 🔄 Syncing external user:', user.id);
+    this.currentUser = user;
+    localStorage.setItem('servergem_user', JSON.stringify(user));
+    this.notifyListeners();
   }
 }
 

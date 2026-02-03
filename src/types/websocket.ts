@@ -1,3 +1,5 @@
+import { DeploymentProgress } from '@/types/deployment';
+
 /**
  * WebSocket Message Types and Interfaces
  * Type-safe message definitions for client-server communication
@@ -38,14 +40,18 @@ export type ServerMessageType =
   | 'deployment_progress' // Real-time deployment progress
   | 'deployment_update'   // Deployment progress update (legacy)
   | 'deployment_complete' // Deployment finished
-  | 'thought'             // AI internal reasoning
+  | 'ai_thought'          // AI internal reasoning
   | 'error'               // Error occurred
-  | 'pong';               // Heartbeat response
+  | 'pong'                // Heartbeat response
+  | 'pong'                // Heartbeat response
+  | 'monitoring_alert'    // Proactive health alert
+  | 'status_change';      // Service status change notification
 
 export type ClientMessageType =
   | 'init'                // Initialize connection
   | 'message'             // User message
-  | 'ping';               // Heartbeat
+  | 'ping'                // Heartbeat
+  | 'identify';           // User identification
 
 // ============================================================================
 // Client Messages (Frontend → Backend)
@@ -53,6 +59,8 @@ export type ClientMessageType =
 
 export interface ClientInitMessage {
   type: 'init';
+  user_id?: string | null;
+  user?: any; // [FAANG] Full user object for auto-registration
   session_id: string;
   instance_id?: string;
   is_reconnect?: boolean;
@@ -66,6 +74,7 @@ export interface ClientChatMessage {
   type: 'message';
   message: string;
   context?: Record<string, any>;
+  metadata?: Record<string, any>;
 }
 
 export interface ClientPingMessage {
@@ -73,10 +82,19 @@ export interface ClientPingMessage {
   timestamp: string;
 }
 
+export interface ClientIdentifyMessage {
+  type: 'identify';
+  user_id?: string;
+  user?: any;
+  session_id: string;
+  timestamp: string;
+}
+
 export type ClientMessage =
   | ClientInitMessage
   | ClientChatMessage
-  | ClientPingMessage;
+  | ClientPingMessage
+  | ClientIdentifyMessage;
 
 // ============================================================================
 // Server Messages (Backend → Frontend)
@@ -185,7 +203,7 @@ export interface ServerErrorMessage {
 }
 
 export interface ServerThoughtMessage {
-  type: 'thought';
+  type: 'ai_thought';
   content: string;
   timestamp: string;
 }
@@ -207,6 +225,25 @@ export interface ServerPingMessage {
   timestamp: string;
 }
 
+export interface ServerMonitoringAlert {
+  type: 'monitoring_alert';
+  deployment_id: string;
+  service_name: string;
+  alert_type: string;
+  message: string;
+  metadata?: Record<string, any>;
+  timestamp: string;
+}
+
+export interface ServerStatusChangeMessage {
+  type: 'status_change';
+  deployment_id: string;
+  status: string;
+  service_name?: string;
+  message?: string;
+  timestamp: string;
+}
+
 export type ServerMessage =
   | ServerConnectedMessage
   | ServerTypingMessage
@@ -221,7 +258,11 @@ export type ServerMessage =
   | ServerProgressMessage
   | ServerErrorMessage
   | ServerPongMessage
-  | ServerPingMessage;
+  | ServerPingMessage
+  | ServerPongMessage
+  | ServerPingMessage
+  | ServerMonitoringAlert
+  | ServerStatusChangeMessage;
 
 // ============================================================================
 // Message Actions (UI Interactions)
@@ -234,6 +275,7 @@ export interface MessageAction {
   action?: string;
   url?: string;
   variant?: 'primary' | 'secondary' | 'ghost';
+  payload?: any; // ✅ Support for Gemini Brain diagnosis data
 }
 
 // ============================================================================
@@ -300,6 +342,7 @@ export interface UseWebSocketReturn {
 export interface UseChatReturn {
   // State
   messages: ChatMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>; // ✅ Expose setter
   isConnected: boolean;
   isTyping: boolean;
   connectionStatus: ConnectionStatus;
@@ -315,14 +358,7 @@ export interface UseChatReturn {
   disconnect: () => void;
 
   // ✅ PHASE 1.2: Deployment progress state
-  activeDeployment: {
-    deploymentId: string;
-    stages: any[];
-    currentStage: string;
-    overallProgress: number;
-    status: 'deploying' | 'success' | 'failed';
-    startTime: string;
-  } | null;
+  activeDeployment: DeploymentProgress | null;
 
   thoughtBuffer: string[]; // ✅ EXPOSED: Live AI reasoning buffer
   handleActionClick: (action: MessageAction) => void;

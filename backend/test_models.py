@@ -31,6 +31,7 @@ def test_model(model_name):
 if __name__ == "__main__":
     models = [
         "gemini-2.0-flash-001",
+        "gemini-2.0-flash-thinking-exp",
         "gemini-1.5-pro",
         "gemini-1.5-flash",
         "gemini-2.0-pro-exp",

@@ -44,6 +44,7 @@ export function GlobalStickyTimer() {
     const emaSpeed = useRef<number>(0);
     const lastProgress = useRef<number>(0);
     const lastProgressTime = useRef<number>(Date.now());
+    const shadowTimerRef = useRef<NodeJS.Timeout | null>(null);
 
     // Reset when deployment changes
     useEffect(() => {
@@ -72,10 +73,11 @@ export function GlobalStickyTimer() {
 
             if (timeDelta > 0 && progressDelta > 0) {
                 const instantSpeed = progressDelta / timeDelta; // % per second
-                // EMA smoothing (0.3)
+                // EMA smoothing (0.2 for slower, more stable changes)
+                const alpha = 0.2;
                 emaSpeed.current = emaSpeed.current === 0
                     ? instantSpeed
-                    : 0.3 * instantSpeed + 0.7 * emaSpeed.current;
+                    : alpha * instantSpeed + (1 - alpha) * emaSpeed.current;
 
                 progressHistory.current.push({ progress: overallProgress, timestamp: now });
                 if (progressHistory.current.length > 10) progressHistory.current.shift();
@@ -84,46 +86,74 @@ export function GlobalStickyTimer() {
             lastProgressTime.current = now;
         }
 
-        // Calculate remaining time
-        const remainingProgress = 100 - overallProgress;
+        // --- [PRINCIPAL CALCULATION] STAGE-WEIGHTED FUSION MODEL ---
+        const stages: DeploymentStage[] = activeDeployment.stages || [];
+        const currentStageIndex = stages.findIndex(s => s.id === currentStage);
+
         let estimatedSeconds = -1;
         let confidence: 'low' | 'medium' | 'high' = 'low';
         let trend: 'faster' | 'slower' | 'stable' = 'stable';
 
-        if (emaSpeed.current > 0 && overallProgress > 20) {
-            estimatedSeconds = remainingProgress / emaSpeed.current;
+        if (currentStageIndex >= 0) {
+            let totalRemainingBenchmark = 0;
+            const remainingStages = stages.slice(currentStageIndex);
 
-            const dataPoints = progressHistory.current.length;
-            if (dataPoints >= 5 && overallProgress >= 30) confidence = 'high';
-            else if (dataPoints >= 3 && overallProgress >= 15) confidence = 'medium';
-        } else {
-            // Fallback: Benchmark estimation
-            const stages: DeploymentStage[] = activeDeployment.stages || [];
-            const currentStageIndex = stages.findIndex(s => s.id === currentStage);
-            if (currentStageIndex >= 0) {
-                let remainingTime = 0;
-                stages.slice(currentStageIndex).forEach(stage => {
-                    const benchmark = STAGE_BENCHMARKS[stage.id];
-                    if (benchmark) {
-                        const isCurrent = stage.id === currentStage;
-                        remainingTime += benchmark.avg * (isCurrent ? 0.5 : 1);
-                    }
-                });
-                estimatedSeconds = remainingTime;
+            remainingStages.forEach((stage, idx) => {
+                const benchmark = STAGE_BENCHMARKS[stage.id] || { avg: 20 };
+                if (idx === 0) {
+                    // Current stage: progress-adjusted
+                    // We assume progress within a stage is linear (if not provided, we use 50% as safe harbor)
+                    const stageProgress = (stage.status === 'success') ? 100 : 30; // Heuristic if sub-progress missing
+                    totalRemainingBenchmark += benchmark.avg * (1 - stageProgress / 100);
+                } else {
+                    // Future stages: full benchmark
+                    totalRemainingBenchmark += benchmark.avg;
+                }
+            });
+
+            // EMA Calibration: If we have a stable speed, we blend it with the benchmark
+            if (emaSpeed.current > 0 && overallProgress > 10) {
+                const EMA_WEIGHT = Math.min(0.7, overallProgress / 100); // trust EMA more as we go
+                const rawEmaETA = (100 - overallProgress) / emaSpeed.current;
+
+                // Blend: Fusion = (EMA * weight) + (Benchmark * (1-weight))
+                estimatedSeconds = (rawEmaETA * EMA_WEIGHT) + (totalRemainingBenchmark * (1 - EMA_WEIGHT));
+
+                // Confidence & Trend logic (preserved)
+                const dataPoints = progressHistory.current.length;
+                if (dataPoints >= 5 && overallProgress >= 30) confidence = 'high';
+                else if (dataPoints >= 3 && overallProgress >= 15) confidence = 'medium';
+
+                if (dataPoints >= 3) {
+                    const recent = progressHistory.current[dataPoints - 1];
+                    const older = progressHistory.current[dataPoints - 3];
+                    const recentSpeed = (recent.progress - older.progress) / ((recent.timestamp - older.timestamp) / 1000);
+                    if (recentSpeed > emaSpeed.current * 1.2) trend = 'faster';
+                    else if (recentSpeed < emaSpeed.current * 0.8) trend = 'slower';
+                }
+            } else {
+                estimatedSeconds = totalRemainingBenchmark;
             }
         }
 
-        // Sanity bounds
-        if (estimatedSeconds > 600) estimatedSeconds = 600;
-        if (estimatedSeconds < 0 && overallProgress > 0) {
-            estimatedSeconds = ((100 - overallProgress) / overallProgress) * elapsed;
+        // 🛡️ [FAANG SAFETY BOUNDS]: Prevent 'The 3s Trap'
+        // If we are in 'cloud_deployment', it physicaly takes ~30s minimum for GCP to propagate.
+        if (currentStage === 'cloud_deployment' && estimatedSeconds < 25) {
+            estimatedSeconds = 25;
         }
 
-        setEta({ seconds: estimatedSeconds, confidence, trend });
+        if (estimatedSeconds > 600) estimatedSeconds = 600;
+        if (estimatedSeconds < 3) estimatedSeconds = 3;
+
+        setEta(prev => ({
+            seconds: estimatedSeconds,
+            confidence,
+            trend
+        }));
 
     }, [activeDeployment]);
 
-    // Update loop
+    // Update loop (Backend updates)
     useEffect(() => {
         if (activeDeployment?.status === 'deploying') {
             const interval = setInterval(calculateETA, 1000);
@@ -131,6 +161,21 @@ export function GlobalStickyTimer() {
             return () => clearInterval(interval);
         }
     }, [activeDeployment?.status, calculateETA]);
+
+    // ✅ SHADOW COUNTDOWN: Fluid decrement every 100ms
+    useEffect(() => {
+        if (activeDeployment?.status === 'deploying' && eta.seconds > 0) {
+            shadowTimerRef.current = setInterval(() => {
+                setEta(prev => {
+                    if (prev.seconds <= 1) return prev; // Hold at 1s until next update
+                    return { ...prev, seconds: prev.seconds - 0.1 };
+                });
+            }, 100);
+            return () => {
+                if (shadowTimerRef.current) clearInterval(shadowTimerRef.current);
+            };
+        }
+    }, [activeDeployment?.status, eta.seconds > 0]); // Re-sync when major ETA updates occur
 
     if (!activeDeployment || activeDeployment.status !== 'deploying' || !isVisible) {
         return null;
@@ -170,9 +215,24 @@ export function GlobalStickyTimer() {
 
                     <div className="flex items-center gap-2 mt-1">
                         <Clock className="w-3 h-3 text-muted-foreground" />
-                        <span className="text-xs font-medium text-primary">
+                        <span className="text-xs font-medium text-primary tabular-nums">
                             {eta.seconds < 0 ? 'Calculating...' : `~${formatTimeRemaining(eta.seconds)} left`}
                         </span>
+
+                        {/* Trend Indicator */}
+                        {eta.seconds > 0 && eta.trend !== 'stable' && (
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.5 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className={cn(
+                                    "flex items-center gap-0.5 px-1 rounded text-[8px] font-bold uppercase",
+                                    eta.trend === 'faster' ? "bg-green-500/10 text-green-500" : "bg-orange-500/10 text-orange-500"
+                                )}
+                            >
+                                <TrendingUp className={cn("w-2 h-2", eta.trend === 'slower' && "rotate-180")} />
+                                {eta.trend}
+                            </motion.div>
+                        )}
                     </div>
                 </div>
 

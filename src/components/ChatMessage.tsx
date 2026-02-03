@@ -4,13 +4,15 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import remarkGfm from "remark-gfm";
 import { User, Sparkles, Loader2, Rocket, ExternalLink, Timer, Globe, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useEffect, useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import type { ChatMessage, MessageAction } from "@/types/websocket";
 import { EnvVariablesInput, EnvVariable } from "./chat/EnvVariablesInput";
 import { ServiceNameInput } from "./chat/ServiceNameInput";
 import { DeploymentLogs } from "./chat/DeploymentLogs";
 import { AnalysisVisualizer } from "./chat/AnalysisVisualizer";
 import { NeuroLogMatrix } from "./chat/NeuroLogMatrix";
+import { DiffViewer } from "./chat/DiffViewer"; // ✅ Import DiffViewer
+import { CodeDiffView } from "./chat/CodeDiffView"; // ✅ Import Vibe Coding View
 import { cn } from "@/lib/utils";
 
 
@@ -59,44 +61,24 @@ const NeuroLog = ({ thoughts }: { thoughts: string[] }) => {
       animate={{ opacity: 1, height: 'auto' }}
       className="mb-3 w-full"
     >
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[#8b5cf6]/60 hover:text-[#8b5cf6] transition-colors group"
+      <motion.div
+        initial={{ opacity: 0, y: -5, height: 0 }}
+        animate={{ opacity: 1, y: 0, height: 'auto' }}
+        className="mt-2 overflow-hidden border-l border-[#8b5cf6]/20 pl-4 py-1"
       >
-        <span className={`transform transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>
-          ▶
-        </span>
-        <div className="flex items-center gap-1.5">
-          <Loader2 className={`w-2.5 h-2.5 ${!isOpen ? 'animate-spin' : ''}`} />
-          Neuro-Log: {cleanThoughts.length} strategic thoughts
-        </div>
-      </button>
-
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -5, height: 0 }}
-            animate={{ opacity: 1, y: 0, height: 'auto' }}
-            exit={{ opacity: 0, y: -5, height: 0 }}
-            className="mt-2 overflow-hidden"
+        {cleanThoughts.map((thought, i) => (
+          <motion.p
+            key={i}
+            initial={{ opacity: 0, x: -5 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: i * 0.1 }}
+            className="text-[11px] text-gray-400 font-mono leading-relaxed break-all whitespace-pre-wrap flex gap-2"
           >
-            <div className="pl-4 border-l border-[#8b5cf6]/20 space-y-1.5 py-1">
-              {cleanThoughts.map((thought, i) => (
-                <motion.p
-                  key={i}
-                  initial={{ opacity: 0, x: -5 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.1 }}
-                  className="text-[11px] text-gray-400 font-mono leading-relaxed break-all whitespace-pre-wrap"
-                >
-                  <span className="text-[#06b6d4] mr-2">›</span>
-                  {thought}
-                </motion.p>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <span className="text-[#06b6d4] flex-shrink-0">›</span>
+            {thought}
+          </motion.p>
+        ))}
+      </motion.div>
     </motion.div>
   );
 };
@@ -159,14 +141,14 @@ interface ChatMessageProps {
   isLatestMessage?: boolean;
 }
 
-const ChatMessageComponent = ({
+const ChatMessageComponent = React.memo(({
   message,
-  onEnvSubmit,
-  onServiceNameSubmit,
+  isLatestMessage,
   sendStructuredMessage,
-  onActionClick,
   activeDeployment,
-  isLatestMessage
+  onActionClick,
+  onEnvSubmit,
+  onServiceNameSubmit
 }: ChatMessageProps) => {
   const isUser = message.role === "user";
   const time = message.timestamp.toLocaleTimeString("en-US", {
@@ -229,6 +211,7 @@ const ChatMessageComponent = ({
 
   return (
     <motion.div
+      layout
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className={`
@@ -267,7 +250,21 @@ const ChatMessageComponent = ({
           `}
         >
           {isUser ? (
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+            <div className="flex flex-col gap-2">
+              {message.metadata?.images && (
+                <div className="flex flex-wrap gap-2">
+                  {message.metadata.images.map((img: any, i: number) => (
+                    <img
+                      key={i}
+                      src={`data:${img.mime_type};base64,${img.data}`}
+                      alt="Attached"
+                      className="max-w-full max-h-[300px] rounded-lg border border-white/20 object-contain"
+                    />
+                  ))}
+                </div>
+              )}
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+            </div>
           ) : (
             <div className="prose prose-invert prose-sm max-w-none">
               {isProgressMessage ? (
@@ -290,6 +287,45 @@ const ChatMessageComponent = ({
                     <AnalysisVisualizer data={message.data} />
                   )}
 
+                  {/* ✅ GEMINI BRAIN: Diff Viewer */}
+                  {message.metadata?.showDiff && message.metadata?.diagnosis?.recommended_fix && (
+                    <div className="mt-4 mb-4">
+                      <DiffViewer
+                        fix={message.metadata.diagnosis.recommended_fix}
+                        onApply={() => {
+                          // Trigger apply action
+                          onActionClick?.({
+                            id: 'apply-fix-internal',
+                            label: 'Apply Fix',
+                            type: 'button',
+                            action: 'apply_gemini_fix',
+                            payload: {
+                              deployment_id: message.metadata?.deployment_id,
+                              diagnosis: message.metadata?.diagnosis
+                            }
+                          });
+                        }}
+                        onDismiss={() => {
+                          // Trigger close action (handled by ChatWindow to toggle flag off)
+                          onActionClick?.({
+                            id: 'close-diff',
+                            label: 'Close Diff',
+                            type: 'button',
+                            action: 'close_diff_view',
+                            payload: { messageId: message.id }
+                          });
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* ✅ GEMINI BRAIN: Vibe Coding Result (Read-Only Diff) */}
+                  {message.metadata?.type === 'vibe_modify_success' && message.metadata?.changes && (
+                    <div className="mt-4 mb-4">
+                      <CodeDiffView changes={message.metadata.changes} />
+                    </div>
+                  )}
+
                   {message.thoughts && message.thoughts.length > 0 && (
                     <NeuroLogMatrix
                       thoughts={message.thoughts}
@@ -305,17 +341,24 @@ const ChatMessageComponent = ({
                           const match = /language-(\w+)/.exec(className || "");
                           return !inline && match ? (
                             <div className="relative group rounded-xl overflow-hidden my-4 border border-border/50">
-                              <SyntaxHighlighter
-                                style={vscDarkPlus}
-                                language={match[1]}
-                                PreTag="div"
-                                {...props}
-                              >
-                                {String(children).replace(/\n$/, "")}
-                              </SyntaxHighlighter>
+                              <div className="overflow-x-hidden w-full overflow-hidden">
+                                <SyntaxHighlighter
+                                  style={vscDarkPlus}
+                                  language={match[1]}
+                                  PreTag="div"
+                                  wrapLongLines={true}
+                                  customStyle={{
+                                    wordBreak: 'break-all',
+                                    whiteSpace: 'pre-wrap',
+                                  }}
+                                  {...props}
+                                >
+                                  {String(children).replace(/\n$/, "")}
+                                </SyntaxHighlighter>
+                              </div>
                             </div>
                           ) : (
-                            <code className={cn("bg-muted/50 px-1.5 py-0.5 rounded-md text-[#8b5cf6]", className)} {...props}>
+                            <code className={cn("bg-muted/50 px-1.5 py-0.5 rounded-md text-[#8b5cf6] break-all whitespace-pre-wrap block my-2", className)} {...props}>
                               {children}
                             </code>
                           );
@@ -405,6 +448,8 @@ const ChatMessageComponent = ({
                 currentStage={activeDeployment.currentStage}
                 overallProgress={activeDeployment.overallProgress}
                 status={activeDeployment.status}
+                thoughts={activeDeployment.thoughts}
+                lastThought={activeDeployment.lastThought}
               />
             </div>
           )}
@@ -444,6 +489,20 @@ const ChatMessageComponent = ({
       </div>
     </motion.div>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison for deep stability check
+  // Return true if props are equivalent (prevents re-render)
+  return (
+    prevProps.message.id === nextProps.message.id &&
+    prevProps.message.content === nextProps.message.content &&
+    prevProps.isLatestMessage === nextProps.isLatestMessage &&
+    JSON.stringify(prevProps.message.metadata) === JSON.stringify(nextProps.message.metadata) &&
+    prevProps.activeDeployment?.status === nextProps.activeDeployment?.status &&
+    prevProps.activeDeployment?.overallProgress === nextProps.activeDeployment?.overallProgress &&
+    prevProps.activeDeployment?.lastThought === nextProps.activeDeployment?.lastThought &&
+    JSON.stringify(prevProps.activeDeployment?.stages) === JSON.stringify(nextProps.activeDeployment?.stages)
+  );
+});
 
-export default ChatMessageComponent;
+const ChatMessage = ChatMessageComponent;
+export default ChatMessage;

@@ -13,15 +13,25 @@ from agents.docker_expert import DockerExpertAgent
 class AnalysisService:
     """Orchestrates code analysis and Dockerfile generation"""
     
-    def __init__(self, gcloud_project: str, location: str = 'us-central1', gemini_api_key: Optional[str] = None):
-        self.code_analyzer = CodeAnalyzerAgent(gcloud_project, location, gemini_api_key)
-        self.docker_expert = DockerExpertAgent(gcloud_project, location)
+    def __init__(
+        self, 
+        gcloud_project: str, 
+        location: str = 'us-central1', 
+        gemini_api_key: Optional[str] = None,
+        docker_service=None,
+        docker_expert=None,
+        code_analyzer=None
+    ):
+        self.code_analyzer = code_analyzer or CodeAnalyzerAgent(gcloud_project, location, gemini_api_key)
+        self.docker_expert = docker_expert or DockerExpertAgent(gcloud_project, location)
+        self.docker_service = docker_service
     
     async def analyze_and_generate(
         self, 
         project_path: str, 
         progress_callback: Optional[Callable] = None,
-        progress_notifier=None
+        progress_notifier=None,
+        abort_event: Optional[asyncio.Event] = None # [FAANG]
     ) -> Dict:
         """
         [FIXED] Full analysis workflow with granular real-time progress
@@ -45,7 +55,8 @@ class AnalysisService:
             analysis = await self.code_analyzer.analyze_project(
                 project_path, 
                 progress_callback=progress_callback,
-                progress_notifier=progress_notifier
+                progress_notifier=progress_notifier,
+                abort_event=abort_event # [FAANG]
             )
             
             if 'error' in analysis:
@@ -81,7 +92,8 @@ class AnalysisService:
             dockerfile_result = await self.docker_expert.generate_dockerfile(
                 analysis, 
                 progress_callback=progress_callback,
-                progress_notifier=progress_notifier
+                progress_notifier=progress_notifier,
+                abort_event=abort_event # [FAANG]
             )
             
             # ✅ FIX 6: Report completion with details WITH flush

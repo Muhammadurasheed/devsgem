@@ -22,28 +22,34 @@ interface NeuroLogMatrixProps {
 
 interface ParsedThought {
   timestamp: string;
-  category: 'SCAN' | 'DETECT' | 'ANALYZE' | 'OPTIMIZE' | 'SECURE' | 'COMPLETE' | 'WARN';
+  category: keyof typeof CATEGORY_CONFIG;
   message: string;
   raw: string;
 }
 
 const CATEGORY_CONFIG = {
-  SCAN: { icon: Radio, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
-  DETECT: { icon: FileCode, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-  ANALYZE: { icon: Cpu, color: 'text-purple-400', bg: 'bg-purple-500/10' },
-  OPTIMIZE: { icon: Zap, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
-  SECURE: { icon: Shield, color: 'text-green-400', bg: 'bg-green-500/10' },
-  COMPLETE: { icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-  WARN: { icon: AlertTriangle, color: 'text-orange-400', bg: 'bg-orange-500/10' },
+  SCAN: { icon: Radio, color: 'text-cyan-400', bg: 'bg-cyan-500/10', label: 'SCAN' },
+  DETECT: { icon: FileCode, color: 'text-blue-400', bg: 'bg-blue-500/10', label: 'DETECT' },
+  ANALYZE: { icon: Cpu, color: 'text-purple-400', bg: 'bg-purple-500/10', label: 'ANALYZE' },
+  ORCHESTRATE: { icon: Layers, color: 'text-indigo-400', bg: 'bg-indigo-500/10', label: 'ORCHESTRATE' },
+  OPTIMIZE: { icon: Zap, color: 'text-yellow-400', bg: 'bg-yellow-500/10', label: 'OPTIMIZE' },
+  VALIDATE: { icon: Shield, color: 'text-pink-400', bg: 'bg-pink-500/10', label: 'VALIDATE' },
+  INFRA: { icon: Box, color: 'text-orange-400', bg: 'bg-orange-500/10', label: 'INFRA' },
+  SECURE: { icon: Shield, color: 'text-green-400', bg: 'bg-green-500/10', label: 'SECURE' },
+  COMPLETE: { icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'COMPLETE' },
+  WARN: { icon: AlertTriangle, color: 'text-red-400', bg: 'bg-red-500/10', label: 'WARN' },
 };
 
-function categorizeThought(thought: string): ParsedThought['category'] {
+function categorizeThought(thought: string): keyof typeof CATEGORY_CONFIG {
   const lower = thought.toLowerCase();
   if (lower.includes('scan') || lower.includes('clone') || lower.includes('fetch')) return 'SCAN';
-  if (lower.includes('detect') || lower.includes('found') || lower.includes('discover')) return 'DETECT';
-  if (lower.includes('analyz') || lower.includes('evaluat') || lower.includes('process')) return 'ANALYZE';
-  if (lower.includes('optim') || lower.includes('enhanc') || lower.includes('improv')) return 'OPTIMIZE';
-  if (lower.includes('secur') || lower.includes('valid') || lower.includes('check')) return 'SECURE';
+  if (lower.includes('detect') || lower.includes('found') || lower.includes('discover') || lower.includes('identifier')) return 'DETECT';
+  if (lower.includes('analyz') || lower.includes('evaluat') || lower.includes('process') || lower.includes('semantic')) return 'ANALYZE';
+  if (lower.includes('orchestrat') || lower.includes('mapping') || lower.includes('traversal')) return 'ORCHESTRATE';
+  if (lower.includes('optim') || lower.includes('enhanc') || lower.includes('improv') || lower.includes('calibrat')) return 'OPTIMIZE';
+  if (lower.includes('valid') || lower.includes('check') || lower.includes('verify')) return 'VALIDATE';
+  if (lower.includes('cloud') || lower.includes('container') || lower.includes('manifest') || lower.includes('provision')) return 'INFRA';
+  if (lower.includes('secur') || lower.includes('hardening') || lower.includes('permission')) return 'SECURE';
   if (lower.includes('complete') || lower.includes('success') || lower.includes('done') || lower.includes('✅')) return 'COMPLETE';
   if (lower.includes('warn') || lower.includes('issue') || lower.includes('error') || lower.includes('⚠')) return 'WARN';
   return 'ANALYZE';
@@ -163,10 +169,10 @@ export function NeuroLogMatrix({ thoughts, isLive = false, analysisData }: Neuro
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}
       className={cn(
-        "font-mono text-xs overflow-hidden rounded-xl border border-cyan-500/30 bg-[#0a0f14]/98 backdrop-blur-xl shadow-2xl",
+        "font-mono text-xs overflow-hidden rounded-2xl border border-cyan-500/20 bg-[#0a0f14]/90 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] ring-1 ring-white/5",
         isFullscreen
-          ? "fixed inset-4 z-[100] flex flex-col"
-          : "mb-4 w-full max-h-[400px] flex flex-col"
+          ? "fixed inset-8 z-[100] flex flex-col"
+          : "mb-6 w-full max-h-[450px] flex flex-col"
       )}
     >
       {/* Terminal Header */}
@@ -251,15 +257,50 @@ export function NeuroLogMatrix({ thoughts, isLive = false, analysisData }: Neuro
             );
           })}
 
-          {/* Cursor */}
+          {/* Cursor and Neural Discovery */}
           {isLive && (
             <motion.div
-              animate={{ opacity: [0.2, 1, 0.2] }}
-              transition={{ duration: 1, repeat: Infinity }}
-              className="flex items-center gap-2 mt-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-6 border-t border-cyan-500/10 pt-4"
             >
-              <span className="w-2 h-4 bg-cyan-500" />
-              <span className="text-[10px] text-cyan-500/50">Processing neural pathways...</span>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex gap-1">
+                  {[1, 2, 3].map(i => (
+                    <motion.div
+                      key={i}
+                      animate={{
+                        scale: [1, 1.5, 1],
+                        opacity: [0.3, 1, 0.3]
+                      }}
+                      transition={{
+                        duration: 1.5,
+                        repeat: Infinity,
+                        delay: i * 0.2
+                      }}
+                      className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.8)]"
+                    />
+                  ))}
+                </div>
+                <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest animate-pulse">
+                  Neural Path Discovery Active
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 opacity-50">
+                {['SEMANTIC_MAPPING', 'AST_TRAVERSAL', 'SECURITY_HEURISTICS'].map((step) => (
+                  <div key={step} className="flex flex-col gap-1 p-2 rounded bg-cyan-500/5 border border-cyan-500/10">
+                    <span className="text-[8px] text-cyan-500/60 uppercase">{step}</span>
+                    <div className="h-1 w-full bg-cyan-900/40 rounded-full overflow-hidden">
+                      <motion.div
+                        animate={{ x: ['-100%', '100%'] }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                        className="h-full w-1/2 bg-cyan-500/40"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </motion.div>
           )}
         </div>

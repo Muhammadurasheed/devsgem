@@ -132,11 +132,6 @@ const Deploy = () => {
                 connectionStatus.state === 'connecting' ? 'bg-yellow-500 animate-pulse' :
                   'bg-red-500'
                 }`} />
-              <span className="text-xs text-muted-foreground">
-                {connectionStatus.state === 'connected' ? 'Backend Online' :
-                  connectionStatus.state === 'connecting' ? 'Connecting...' :
-                    'Backend Offline'}
-              </span>
             </div>
           </div>
         </div>

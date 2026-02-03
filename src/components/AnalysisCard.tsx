@@ -4,12 +4,14 @@ import { Progress } from '@/components/ui/progress';
 import { motion } from 'framer-motion';
 import { CheckCircle2, Server, Cpu, Globe, Boxes, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { getTechLogo } from '@/lib/utils/logo-utils';
 
 interface AnalysisCardProps {
     summary: string;
     analysisData?: {
         framework: string;
         language: string;
+        database?: string;  // [FAANG] Added for tech logo display
         port: number;
         readiness_score: number; // 0-100
         verdict: string;
@@ -27,9 +29,10 @@ interface AnalysisCardProps {
 const parseSummary = (text: string) => {
     const framework = text.match(/Framework:?\s*([A-Za-z0-9\.\-\_]+)/i)?.[1] || 'Unknown';
     const language = text.match(/Language:?\s*([A-Za-z0-9\.\-\_]+)/i)?.[1] || 'Polyglot';
+    const database = text.match(/Database:?\s*([A-Za-z0-9\.\-\_]+)/i)?.[1];
     const port = text.match(/Port:?\s*(\d+)/i)?.[1] || '8080';
     const complexity = text.toLowerCase().includes('high') ? 'High' : (text.toLowerCase().includes('medium') ? 'Medium' : 'Low');
-    return { framework, language, port: parseInt(port), complexity };
+    return { framework, language, database, port: parseInt(port), complexity };
 };
 
 export const AnalysisCard = ({ summary, analysisData }: AnalysisCardProps) => {
@@ -68,23 +71,12 @@ export const AnalysisCard = ({ summary, analysisData }: AnalysisCardProps) => {
     }, [scanComplete, data.metrics?.total_lines]);
 
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-3xl mx-auto"
-        >
+        <div className="w-full max-w-3xl mx-auto animate-fadeIn">
             <Card className="overflow-hidden border-primary/20 bg-background/90 backdrop-blur-md shadow-xl relative group">
 
-                {/* Scanning Effect Overlay */}
+                {/* [FAANG] Simplified loading state - no heavy scanning animation */}
                 {!scanComplete && (
-                    <motion.div
-                        className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent z-10 pointer-events-none"
-                        initial={{ top: '-100%' }}
-                        animate={{ top: '100%' }}
-                        transition={{ duration: 1.5, ease: "linear" }}
-                    >
-                        <div className="w-full h-1 bg-primary/30 shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
-                    </motion.div>
+                    <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary via-purple-500 to-primary animate-pulse" />
                 )}
 
                 <CardHeader className="border-b border-border/50 bg-muted/20 pb-4">
@@ -108,14 +100,33 @@ export const AnalysisCard = ({ summary, analysisData }: AnalysisCardProps) => {
                         <div className="space-y-2">
                             <label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Architecture Detection</label>
                             <div className="flex flex-wrap gap-2">
-                                <Badge className="h-8 px-3 text-sm bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 border-blue-500/20 gap-2 transition-transform hover:scale-105">
-                                    <Boxes className="w-4 h-4" />
+                                <Badge className="h-10 px-4 text-sm bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 border-blue-500/20 gap-3 transition-transform hover:scale-105 font-medium shadow-sm">
+                                    {getTechLogo(data.framework) ? (
+                                        <img src={getTechLogo(data.framework)!} alt={data.framework} className="w-6 h-6 object-contain" />
+                                    ) : (
+                                        <Boxes className="w-5 h-5" />
+                                    )}
                                     {data.framework}
                                 </Badge>
-                                <Badge variant="secondary" className="h-8 px-3 text-sm gap-2">
-                                    <Globe className="w-4 h-4" />
+                                <Badge variant="secondary" className="h-10 px-4 text-sm gap-3 font-medium shadow-sm">
+                                    {getTechLogo(data.language) ? (
+                                        <img src={getTechLogo(data.language)!} alt={data.language} className="w-6 h-6 object-contain" />
+                                    ) : (
+                                        <Globe className="w-5 h-5" />
+                                    )}
                                     {data.language}
                                 </Badge>
+                                {/* [FAANG] Database Badge with Logo */}
+                                {data.database && data.database.toLowerCase() !== 'none' && data.database.toLowerCase() !== 'none detected' && (
+                                    <Badge variant="outline" className="h-10 px-4 text-sm bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-amber-500/20 gap-3 transition-transform hover:scale-105 font-medium shadow-sm">
+                                        {getTechLogo(data.database) ? (
+                                            <img src={getTechLogo(data.database)!} alt={data.database} className="w-6 h-6 object-contain" />
+                                        ) : (
+                                            <Server className="w-5 h-5" />
+                                        )}
+                                        {data.database}
+                                    </Badge>
+                                )}
                             </div>
                         </div>
 
@@ -159,7 +170,13 @@ export const AnalysisCard = ({ summary, analysisData }: AnalysisCardProps) => {
                         <div className="space-y-2">
                             <label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Infrastructure Target</label>
                             <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30">
-                                <Server className="w-5 h-5 text-orange-500" />
+                                {getTechLogo('google cloud') ? (
+                                    <div className="p-1 px-1.5 bg-background rounded-md shadow-sm border border-border/50">
+                                        <img src={getTechLogo('google cloud')!} alt="Google Cloud" className="w-8 h-8 object-contain" />
+                                    </div>
+                                ) : (
+                                    <Server className="w-6 h-6 text-orange-500" />
+                                )}
                                 <div>
                                     <div className="text-sm font-medium">Cloud Run (Gen 2)</div>
                                     <div className="text-xs text-muted-foreground">Port {data.port} • Debian Slim • HTTP/2</div>
@@ -227,7 +244,7 @@ export const AnalysisCard = ({ summary, analysisData }: AnalysisCardProps) => {
 
                 </CardContent>
             </Card>
-        </motion.div>
+        </div>
     );
 };
 import { AnimatePresence } from 'framer-motion';

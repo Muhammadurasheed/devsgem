@@ -45,6 +45,7 @@ class Deployment:
     updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     last_deployed: Optional[str] = None
     build_logs: List[str] = field(default_factory=list)
+    stages: List[Dict] = field(default_factory=list)
     error_message: Optional[str] = None
     request_count: int = 0
     uptime_percentage: float = 100.0
@@ -57,10 +58,22 @@ class Deployment:
     
     @classmethod
     def from_dict(cls, data: Dict) -> 'Deployment':
-        """Create from dictionary"""
+        """Create from dictionary with schema evolution robustness"""
+        # [FAANG] Handle status conversion
         if isinstance(data.get('status'), str):
-            data['status'] = DeploymentStatus(data['status'])
-        return cls(**data)
+            try:
+                data['status'] = DeploymentStatus(data['status'])
+            except ValueError:
+                 # Fallback for unknown status
+                 data['status'] = DeploymentStatus.PENDING
+
+        # [FAANG] Robustness: Filter fields to match current dataclass
+        import inspect
+        # inspect.get_annotations returns a dict {name: type}
+        valid_fields = set(inspect.get_annotations(cls).keys())
+        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+        
+        return cls(**filtered_data)
 
 
 @dataclass

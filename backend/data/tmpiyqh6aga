@@ -1,0 +1,72 @@
+{
+  "00865680-2ef2-4de2-b90e-1d61757f7140": {
+    "id": "00865680-2ef2-4de2-b90e-1d61757f7140",
+    "user_id": "user_default",
+    "service_name": "energram",
+    "repo_url": "https://github.com/psyberpath/energram.git",
+    "status": "pending",
+    "url": "",
+    "gcp_url": null,
+    "region": "us-central1",
+    "memory": "512Mi",
+    "cpu": "1",
+    "env_vars": {},
+    "created_at": "2026-02-02T13:45:17.826884",
+    "updated_at": "2026-02-02T13:45:17.826905",
+    "last_deployed": null,
+    "build_logs": [],
+    "stages": [
+      {
+        "id": "repo_access",
+        "label": "Repo Access",
+        "status": "waiting"
+      },
+      {
+        "id": "code_analysis",
+        "label": "Code Analysis",
+        "status": "waiting"
+      },
+      {
+        "id": "dockerfile_generation",
+        "label": "Dockerfile Generation",
+        "status": "waiting"
+      },
+      {
+        "id": "env_vars",
+        "label": "Env Vars",
+        "status": "waiting"
+      },
+      {
+        "id": "security_scan",
+        "label": "Security Scan",
+        "status": "waiting"
+      },
+      {
+        "id": "container_build",
+        "label": "Container Build",
+        "status": "waiting"
+      },
+      {
+        "id": "cloud_deployment",
+        "label": "Cloud Deployment",
+        "status": "waiting"
+      }
+    ],
+    "error_message": null,
+    "request_count": 0,
+    "uptime_percentage": 100.0
+  },
+  "d1c42c2d-355e-4c91-8131-60045b5472d9": {
+    "id": "d1c42c2d-355e-4c91-8131-60045b5472d9",
+    "user_id": "user_default",
+    "service_name": "energram",
+    "repo_url": "https://github.com/psyberpath/energram.git",
+    "status": "live",
+    "url": "",
+    "gcp_url": null,
+    "region": "us-central1",
+    "memory": "512Mi",
+    "cpu": "1",
+    "env_vars": {},
+    "created_at": "2026-02-02T13:46:14.728930",
+    "updated_at": 

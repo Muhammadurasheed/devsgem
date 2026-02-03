@@ -1,10 +1,11 @@
 /**
  * Deployment Logs Component
- * Enhanced with Apple-level aesthetics, Matrix-style log visualization, and Interactive Accordion
+ * Enhanced with Apple-level aesthetics and Interactive Accordion
+ * [FAANG] NeuroLogMatrix functionality now integrated into DeploymentProgress stages
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle, Clock, Terminal, Minimize2, ChevronRight, Eye } from 'lucide-react';
+import { ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle, Clock, Terminal, Minimize2, ChevronRight, Eye, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DeploymentStage, DeploymentStageStatus, DeploymentStatus } from '@/types/deployment';
 import { cn } from '@/lib/utils';
@@ -16,23 +17,22 @@ interface DeploymentLogsProps {
   currentStage: string;
   overallProgress: number;
   status: DeploymentStatus;
+  thoughts?: string[];
+  lastThought?: string;
 }
 
-export function DeploymentLogs({ stages, currentStage, overallProgress, status }: DeploymentLogsProps) {
+export function DeploymentLogs({ stages, currentStage, overallProgress, status, thoughts, lastThought }: DeploymentLogsProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showMatrix, setShowMatrix] = useState(false);
-  // Track which stage is expanded in the "Accordion" view
   const [expandedStageId, setExpandedStageId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll matrix logs
   useEffect(() => {
     if (showMatrix && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [stages, showMatrix]);
 
-  // Auto-expand the current stage if it changes
   useEffect(() => {
     if (currentStage && status === 'deploying') {
       setExpandedStageId(currentStage);
@@ -62,12 +62,12 @@ export function DeploymentLogs({ stages, currentStage, overallProgress, status }
     return 'text-blue-500';
   };
 
-  // Aggregate all logs for Matrix view
   const allLogs = stages.flatMap(s =>
     (s.details || []).map(d => ({
       timestamp: s.startTime || new Date().toISOString(),
       msg: d,
-      stage: s.label
+      stage: s.label,
+      isAi: d.startsWith('[AI]')
     }))
   );
 
@@ -146,6 +146,14 @@ export function DeploymentLogs({ stages, currentStage, overallProgress, status }
           </div>
         </div>
 
+        {/* Live Thought Banner */}
+        {lastThought && status === 'deploying' && (
+          <div className="px-4 py-2 bg-cyan-500/5 border-b border-cyan-500/20 flex items-center gap-2">
+            <Brain className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+            <span className="text-xs font-mono text-cyan-300/90 line-clamp-1">{lastThought}</span>
+          </div>
+        )}
+
         {/* Standard Steps View */}
         <AnimatePresence initial={false}>
           {isExpanded && (
@@ -157,6 +165,7 @@ export function DeploymentLogs({ stages, currentStage, overallProgress, status }
             >
               <div className="p-2 space-y-1 bg-muted/5 max-h-[400px] overflow-y-auto custom-scrollbar">
                 {stages.map((stage) => {
+                  // ... existing mapping logic ...
                   const isCurrent = currentStage === stage.id;
                   const isCompleted = stage.status === 'success';
                   const isError = stage.status === 'error';
@@ -174,7 +183,7 @@ export function DeploymentLogs({ stages, currentStage, overallProgress, status }
                         scale: isCurrent ? 1.01 : 1
                       }}
                       className={cn(
-                        "rounded-lg border transition-all duration-300 relative overflow-hidden group",
+                        "rounded-lg border transition-all duration-300 relative overflow-hidden group mb-1",
                         isCurrent ? "border-primary/30 shadow-sm" :
                           isCompleted ? "border-border/40 opacity-70 hover:opacity-100" :
                             "border-transparent opacity-50 hover:bg-white/5 cursor-pointer"
@@ -189,9 +198,9 @@ export function DeploymentLogs({ stages, currentStage, overallProgress, status }
                           <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary animate-pulse" />
                         )}
 
-                        <div className={cn("mt-0.5 relative", isCurrent && "animate-pulse")}>
+                        <div className={cn("mt-0.5 relative", (isCurrent && stage.status === 'in-progress') && "animate-pulse")}>
                           {getStatusIcon(stage.status)}
-                          {isCurrent && (
+                          {(isCurrent && stage.status === 'in-progress') && (
                             <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl animate-ping" />
                           )}
                         </div>
@@ -205,7 +214,6 @@ export function DeploymentLogs({ stages, currentStage, overallProgress, status }
                               isError && "text-red-600"
                             )}>
                               {stage.label}
-                              {/* New "Eye" icon for visibility hint */}
                               <Eye className={cn(
                                 "w-3 h-3 opacity-0 group-hover:opacity-50 transition-opacity",
                                 isItemExpanded && "opacity-100 text-primary"
@@ -242,6 +250,18 @@ export function DeploymentLogs({ stages, currentStage, overallProgress, status }
                                     {detail}
                                   </div>
                                 ))
+                              ) : stage.status === 'in-progress' ? (
+                                <div className="flex flex-col gap-2">
+                                  {stage.message && (
+                                    <div className="text-secondary/80 font-medium">
+                                      {stage.message}
+                                    </div>
+                                  )}
+                                  <div className="flex items-center gap-2 text-primary/60 italic animate-pulse">
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    Synchronizing build telemetry...
+                                  </div>
+                                </div>
                               ) : (
                                 <div className="italic opacity-50">No details available for this stage.</div>
                               )}
@@ -252,71 +272,122 @@ export function DeploymentLogs({ stages, currentStage, overallProgress, status }
                     </motion.div>
                   );
                 })}
+
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </motion.div>
 
-      {/* MATRIX MODE OVERLAY */}
+      {/* MATRIX MODE OVERLAY (APPLE-LEVEL CENTERING) */}
       <AnimatePresence>
         {showMatrix && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            className="fixed inset-4 md:inset-auto md:bottom-20 md:right-20 md:w-[600px] md:h-[400px] z-[9999] rounded-xl overflow-hidden shadow-2xl border border-green-500/30 bg-black/95 backdrop-blur-xl flex flex-col font-mono"
-          >
-            {/* Terminal Header */}
-            <div className="flex items-center justify-between px-4 py-2 bg-green-900/10 border-b border-green-500/20">
-              <div className="flex items-center gap-2">
-                <div className="flex gap-1.5">
-                  <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50" />
-                  <div className="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50" />
-                  <div className="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/50" />
-                </div>
-                <span className="text-xs text-green-500/80 font-bold ml-2">DEVGEM_DIAGNOSTICS</span>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowMatrix(false)}
-                className="h-6 w-6 text-green-500 hover:bg-green-500/20 rounded hover:text-green-400"
-              >
-                <Minimize2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
+            {/* Backdrop Blur */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowMatrix(false)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
 
-            {/* Terminal Content */}
-            <ScrollArea className="flex-1 p-4" ref={scrollRef}>
-              <div className="space-y-1">
-                {allLogs.length === 0 ? (
-                  <div className="text-green-500/40 text-xs italic">Waiting for telemetry stream...</div>
-                ) : (
-                  allLogs.map((log, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, x: -5 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.02 }} // Staggered entry
-                      className="text-xs break-all"
-                    >
-                      <span className="text-green-500/40 mr-2">[{new Date(log.timestamp || Date.now()).toLocaleTimeString()}]</span>
-                      <span className="text-blue-400/80 mr-2">[{log.stage}]</span>
-                      <span className="text-green-400">{log.msg}</span>
-                    </motion.div>
-                  ))
-                )}
-                {status === 'deploying' && (
-                  <motion.div
-                    animate={{ opacity: [0, 1, 0] }}
-                    transition={{ repeat: Infinity, duration: 1 }}
-                    className="w-2 h-4 bg-green-500 mt-2"
-                  />
-                )}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-4xl h-[600px] rounded-2xl overflow-hidden shadow-[0_32px_64px_-12px_rgba(0,0,0,0.5)] border border-green-500/20 bg-[#0A0B14]/95 backdrop-blur-2xl flex flex-col font-mono"
+            >
+              {/* Terminal Header (Sleek Mac-style) */}
+              <div className="flex items-center justify-between px-6 py-4 bg-green-500/5 border-b border-green-500/10">
+                <div className="flex items-center gap-4">
+                  <div className="flex gap-2">
+                    <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
+                    <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
+                    <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1 bg-green-500/10 rounded-md border border-green-500/20">
+                    <Terminal className="w-3.5 h-3.5 text-green-500" />
+                    <span className="text-[10px] text-green-500 font-bold tracking-widest uppercase">System Telemetry Output</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] text-green-500/40 uppercase tracking-tighter">Secure Link Established</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowMatrix(false)}
+                    className="h-8 w-8 text-green-500/60 hover:bg-green-500/20 rounded-full hover:text-green-400 transition-all"
+                  >
+                    <Minimize2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-            </ScrollArea>
-          </motion.div>
+
+              {/* Terminal Content with Elite Styling */}
+              <ScrollArea className="flex-1 p-6" ref={scrollRef}>
+                <div className="space-y-1.5 pb-8">
+                  {allLogs.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full pt-20 opacity-30">
+                      <Loader2 className="w-8 h-8 animate-spin text-green-500 mb-4" />
+                      <p className="text-sm italic">Synchronizing with Cloud Build nodes...</p>
+                    </div>
+                  ) : (
+                    allLogs.map((log, i) => (
+                      <motion.div
+                        key={i}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: Math.min(i * 0.01, 1) }}
+                        className="text-[13px] leading-relaxed group"
+                      >
+                        <div className="flex gap-4">
+                          <span className="text-green-500/30 flex-shrink-0 tabular-nums">
+                            {new Date(log.timestamp || Date.now()).toLocaleTimeString([], { hour12: false })}
+                          </span>
+                          <span className="text-blue-400/60 flex-shrink-0 font-bold min-w-[120px]">
+                            [{log.stage.toUpperCase()}]
+                          </span>
+                          <span className={cn(
+                            "break-all transition-colors",
+                            log.msg.includes('ERROR') ? "text-red-400" :
+                              log.msg.includes('SUCCESS') ? "text-green-400 font-bold" :
+                                "text-green-500/90 group-hover:text-green-400"
+                          )}>
+                            {log.msg}
+                          </span>
+                        </div>
+                      </motion.div>
+                    ))
+                  )}
+                  {status === 'deploying' && (
+                    <motion.div
+                      animate={{ opacity: [0, 1, 0] }}
+                      transition={{ repeat: Infinity, duration: 0.8 }}
+                      className="w-2.5 h-5 bg-green-500/60 mt-3 ml-[180px]"
+                    />
+                  )}
+                </div>
+              </ScrollArea>
+
+              {/* Footer / Stats */}
+              <div className="px-6 py-2 border-t border-green-500/10 bg-black/40 flex justify-between items-center">
+                <div className="flex gap-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                    <span className="text-[9px] text-green-500/50 uppercase tracking-widest font-bold">Bit-Stream Active</span>
+                  </div>
+                  <div className="text-[9px] text-green-500/30 uppercase font-bold">
+                    Logs: {allLogs.length}
+                  </div>
+                </div>
+                <div className="text-[9px] text-green-500/30 font-mono uppercase">
+                  DevGem Kernel v2.4.0-A
+                </div>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

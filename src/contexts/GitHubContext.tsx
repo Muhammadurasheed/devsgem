@@ -5,6 +5,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { toast } from 'sonner';
+import { authService } from '@/lib/auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -69,7 +70,16 @@ export function GitHubProvider({ children }: { children: ReactNode }) {
 
         if (savedUser) {
             try {
-                setUser(JSON.parse(savedUser));
+                const parsedUser = JSON.parse(savedUser);
+                setUser(parsedUser);
+                // [FAANG] Sync on load
+                authService.setExternalUser({
+                    id: String(parsedUser.login), // Use strictly the handle as ID to match backend expectation
+                    email: parsedUser.email || `@${parsedUser.login}`,
+                    displayName: parsedUser.name || parsedUser.login,
+                    photoURL: parsedUser.avatar_url,
+                    githubToken: savedToken || undefined
+                });
             } catch (e) {
                 console.error('Failed to parse saved user:', e);
                 localStorage.removeItem(GITHUB_USER_KEY);
@@ -99,6 +109,16 @@ export function GitHubProvider({ children }: { children: ReactNode }) {
 
                 setUser(githubUser);
                 localStorage.setItem(GITHUB_USER_KEY, JSON.stringify(githubUser));
+
+                // [FAANG] Sync with Central Auth
+                authService.setExternalUser({
+                    id: String(githubUser.login),
+                    email: githubUser.email || `@${githubUser.login}`,
+                    displayName: githubUser.name || githubUser.login,
+                    photoURL: githubUser.avatar_url,
+                    githubToken: tokenToValidate
+                });
+
                 return true;
             } else {
                 console.error('Token validation failed:', response.status);
@@ -144,7 +164,7 @@ export function GitHubProvider({ children }: { children: ReactNode }) {
                 throw new Error('Failed to initiate OAuth');
             }
             const data = await response.json();
-            
+
             // Redirect to GitHub authorization page
             window.location.href = data.url;
         } catch (error) {
@@ -172,7 +192,7 @@ export function GitHubProvider({ children }: { children: ReactNode }) {
             }
 
             const data = await response.json();
-            
+
             // Store token and user info
             const accessToken = data.token;
             const userInfo: GitHubUser = {
@@ -186,10 +206,19 @@ export function GitHubProvider({ children }: { children: ReactNode }) {
             setToken(accessToken);
             setUser(userInfo);
             setIsConnected(true);
-            
+
             localStorage.setItem(GITHUB_TOKEN_KEY, accessToken);
             localStorage.setItem(GITHUB_USER_KEY, JSON.stringify(userInfo));
-            
+
+            // [FAANG] Sync with Central Auth
+            authService.setExternalUser({
+                id: String(userInfo.login),
+                email: userInfo.email || `@${userInfo.login}`,
+                displayName: userInfo.name || userInfo.login,
+                photoURL: userInfo.avatar_url,
+                githubToken: accessToken
+            });
+
             toast.success(`Welcome, ${userInfo.name}!`);
             return true;
         } catch (error) {

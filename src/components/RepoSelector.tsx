@@ -7,6 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Search, Star, Lock, Globe, GitBranch, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import { useGitHub } from '@/hooks/useGitHub';
+import { getTechLogo } from '@/lib/utils/logo-utils';
 
 interface RepoSelectorProps {
   onSelectRepo: (repoUrl: string, branch: string) => void;
@@ -29,7 +30,7 @@ export const RepoSelector = ({ onSelectRepo }: RepoSelectorProps) => {
     } else {
       const query = searchQuery.toLowerCase();
       setFilteredRepos(
-        repositories.filter(repo => 
+        repositories.filter(repo =>
           repo.name.toLowerCase().includes(query) ||
           repo.description?.toLowerCase().includes(query) ||
           repo.language?.toLowerCase().includes(query)
@@ -107,7 +108,7 @@ export const RepoSelector = ({ onSelectRepo }: RepoSelectorProps) => {
             <div className="flex items-center justify-center h-full">
               <div className="text-center space-y-2 p-4">
                 <p className="text-sm text-muted-foreground">
-                  {repositories.length === 0 
+                  {repositories.length === 0
                     ? 'No repositories found. Create one on GitHub first.'
                     : 'No repositories match your search.'}
                 </p>
@@ -117,7 +118,7 @@ export const RepoSelector = ({ onSelectRepo }: RepoSelectorProps) => {
             <div className="p-4 space-y-2">
               {filteredRepos.map((repo, index) => (
                 <div key={repo.id}>
-                  <div 
+                  <div
                     className="p-4 rounded-lg border border-border/50 bg-card hover:bg-accent/50 transition-colors cursor-pointer group"
                     onClick={() => onSelectRepo(repo.clone_url, repo.default_branch)}
                   >
@@ -133,16 +134,22 @@ export const RepoSelector = ({ onSelectRepo }: RepoSelectorProps) => {
                             <Globe className="w-3 h-3 text-muted-foreground flex-shrink-0" />
                           )}
                         </div>
-                        
+
                         {repo.description && (
                           <p className="text-xs text-muted-foreground line-clamp-2">
                             {repo.description}
                           </p>
                         )}
-                        
+
                         <div className="flex items-center gap-3 flex-wrap">
                           {repo.language && (
-                            <Badge variant="secondary" className="text-xs">
+                            <Badge variant="secondary" className="text-xs gap-2 py-1.5 px-3 h-9 font-medium shadow-sm border-primary/5">
+                              {(() => {
+                                const logoPath = getTechLogo(repo.language);
+                                return logoPath ? (
+                                  <img src={logoPath} className="w-5 h-5 object-contain" alt={repo.language} />
+                                ) : null;
+                              })()}
                               {repo.language}
                             </Badge>
                           )}
@@ -158,7 +165,7 @@ export const RepoSelector = ({ onSelectRepo }: RepoSelectorProps) => {
                           </div>
                         </div>
                       </div>
-                      
+
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <Button
                           size="sm"

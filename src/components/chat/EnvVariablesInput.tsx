@@ -73,7 +73,7 @@ export function EnvVariablesInput({ onEnvSubmit, onSkip, sendMessageToBackend }:
       <div className="env-input-choice">
         <h3 className="choice-title">Environment Variables</h3>
         <p className="choice-description">
-          Your app needs environment variables. How would you like to provide them?
+          Does your app need environment variables? How would you like to provide them?
         </p>
 
         <div className="choice-buttons">

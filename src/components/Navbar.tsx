@@ -87,10 +87,6 @@ const Navbar = () => {
             <div className="ml-2 pl-2 border-l border-border/50 flex items-center gap-2">
               {isAuthenticated ? (
                 <>
-                  <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')} className="gap-2">
-                    <Rocket className="h-4 w-4" />
-                    Dashboard
-                  </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="sm" className="gap-2">

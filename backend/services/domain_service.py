@@ -27,7 +27,7 @@ class DomainService:
         try:
             credentials, _ = default()
             self.run_api = discovery.build('run', 'v1', credentials=credentials, cache_discovery=False)
-            logger.info("✅ DomainService initialized")
+            logger.info("[SUCCESS] DomainService initialized")
         except Exception as e:
             logger.error(f"Failed to initialize DomainService: {e}")
             self.run_api = None

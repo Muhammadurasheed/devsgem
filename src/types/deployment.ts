@@ -20,7 +20,7 @@ export interface DeploymentStage {
 
 export interface DeploymentProgress {
   deploymentId: string;
-  serviceName: string;
+  serviceName?: string;
   stages: DeploymentStage[];
   currentStage: string;
   overallProgress: number;
@@ -29,6 +29,8 @@ export interface DeploymentProgress {
   status: DeploymentStatus;
   deploymentUrl?: string;
   error?: DeploymentError;
+  lastThought?: string;
+  thoughts?: string[];
 }
 
 export interface DeploymentError {
@@ -52,7 +54,7 @@ export interface StageUpdate {
 
 export const DEPLOYMENT_STAGES: DeploymentStage[] = [
   {
-    id: 'repo_clone',
+    id: 'repo_access',
     label: 'Repository Access',
     icon: '📦',
     status: 'waiting',
@@ -63,7 +65,7 @@ export const DEPLOYMENT_STAGES: DeploymentStage[] = [
     label: 'Code Analysis',
     icon: '🔍',
     status: 'waiting',
-    weight: 10,
+    weight: 5,
   },
   {
     id: 'dockerfile_generation',
@@ -84,20 +86,20 @@ export const DEPLOYMENT_STAGES: DeploymentStage[] = [
     label: 'Security Scan',
     icon: '🔒',
     status: 'waiting',
-    weight: 10,
+    weight: 5,
   },
   {
     id: 'container_build',
     label: 'Container Build',
     icon: '🏗️',
     status: 'waiting',
-    weight: 40,
+    weight: 50, // Build is the longest
   },
   {
     id: 'cloud_deployment',
     label: 'Cloud Run Deployment',
     icon: '🚀',
     status: 'waiting',
-    weight: 30,
+    weight: 25,
   },
 ];

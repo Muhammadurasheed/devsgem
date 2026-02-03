@@ -43,7 +43,7 @@ const Footer = () => {
         {/* Copyright */}
         <div className="mt-8 pt-8 border-t border-border/50 text-center text-sm text-muted-foreground">
           <p>
-            Built with ❤️• Powered by Google Cloud, Google ADK & Gemini 2.0 Flash
+            Built with ❤️• Powered by Google Cloud, Google ADK & Gemini 3 Pro
           </p>
         </div>
       </div>

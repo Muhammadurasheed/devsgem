@@ -68,5 +68,41 @@ def get_gemini_api_tools():
                 },
                 'required': ['service_name']
             }
+        },
+        {
+            'name': 'modify_source_code',
+            'description': 'Modify source code files in the cloned repository. Use this for "Vibe Coding" - when user asks to change colors, text, logic, or fix bugs. Returns a diff of changes.',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'file_path': {
+                        'type': 'string',
+                        'description': 'Relative path to the file to modify (e.g., src/App.tsx, backend/main.py)'
+                    },
+                    'changes': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'old_content': {
+                                    'type': 'string',
+                                    'description': 'Exact substring to replace. MUST match existing file content EXACTLY, including whitespace.'
+                                },
+                                'new_content': {
+                                    'type': 'string',
+                                    'description': 'New content to insert'
+                                },
+                                'reason': {
+                                    'type': 'string',
+                                    'description': 'Reason for this change (e.g., "Changing background to dark blue")'
+                                }
+                            },
+                            'required': ['old_content', 'new_content']
+                        },
+                        'description': 'List of code replacements to apply'
+                    }
+                },
+                'required': ['file_path', 'changes']
+            }
         }
     ]

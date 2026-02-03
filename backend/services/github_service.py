@@ -12,13 +12,16 @@ import requests
 from datetime import datetime
 
 
+import tempfile
+
 class GitHubService:
     """Production-grade GitHub integration service"""
     
     def __init__(self, github_token: Optional[str] = None):
         self.token = github_token or os.getenv('GITHUB_TOKEN')
         self.base_url = 'https://api.github.com'
-        self.workspace_dir = Path('/tmp/servergem_repos')
+        # [FIXED] Use standard temp directory for Windows compatibility
+        self.workspace_dir = Path(tempfile.gettempdir()) / 'servergem_repos'
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
         
     def validate_token(self) -> Dict:
@@ -274,3 +277,164 @@ class GitHubService:
         metadata['languages'] = list(metadata['languages'])
         
         return metadata
+    
+    # =========================================================================
+    # VIBE CODING METHODS - For Gemini Brain Code Modifications
+    # =========================================================================
+    
+    async def get_file_content(self, repo_url: str, file_path: str, branch: str = 'main') -> str:
+        """
+        Read file content from GitHub repository via API
+        
+        Args:
+            repo_url: GitHub repo URL (e.g., https://github.com/user/repo)
+            file_path: Path to file within repo (e.g., src/app.js)
+            branch: Branch name (default: main)
+        
+        Returns:
+            File content as string
+        """
+        if not self.token:
+            raise ValueError("GitHub token required for reading files")
+        
+        # Parse repo from URL
+        parts = repo_url.rstrip('/').replace('.git', '').split('/')
+        owner = parts[-2]
+        repo = parts[-1]
+        
+        headers = {
+            'Authorization': f'Bearer {self.token}',
+            'Accept': 'application/vnd.github.v3.raw'  # Get raw file content
+        }
+        
+        url = f'{self.base_url}/repos/{owner}/{repo}/contents/{file_path}'
+        params = {'ref': branch}
+        
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=30)
+            
+            if response.status_code == 200:
+                return response.text
+            elif response.status_code == 404:
+                raise FileNotFoundError(f"File not found: {file_path}")
+            else:
+                raise Exception(f"GitHub API error {response.status_code}: {response.text}")
+                
+        except requests.Timeout:
+            raise Exception("GitHub API timeout")
+        except Exception as e:
+            raise Exception(f"Failed to get file content: {str(e)}")
+    
+    async def commit_file(
+        self,
+        repo_url: str,
+        file_path: str,
+        content: str,
+        message: str,
+        branch: str = 'main'
+    ) -> Dict:
+        """
+        Commit file changes to GitHub repository
+        
+        Args:
+            repo_url: GitHub repo URL
+            file_path: Path to file within repo
+            content: New file content
+            message: Commit message
+            branch: Branch name (default: main)
+        
+        Returns:
+            Dict with commit details (sha, url, etc.)
+        """
+        if not self.token:
+            raise ValueError("GitHub token required for commits")
+        
+        import base64
+        
+        # Parse repo from URL
+        parts = repo_url.rstrip('/').replace('.git', '').split('/')
+        owner = parts[-2]
+        repo = parts[-1]
+        
+        headers = {
+            'Authorization': f'Bearer {self.token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        
+        url = f'{self.base_url}/repos/{owner}/{repo}/contents/{file_path}'
+        
+        try:
+            # First, get the current file SHA (required for updates)
+            get_response = requests.get(
+                url,
+                headers=headers,
+                params={'ref': branch},
+                timeout=30
+            )
+            
+            sha = None
+            if get_response.status_code == 200:
+                sha = get_response.json().get('sha')
+            
+            # Prepare commit payload
+            content_b64 = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+            
+            payload = {
+                'message': message,
+                'content': content_b64,
+                'branch': branch
+            }
+            
+            if sha:
+                payload['sha'] = sha  # Required for updating existing files
+            
+            # Create/update file
+            response = requests.put(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            
+            if response.status_code in [200, 201]:
+                result = response.json()
+                print(f"[GitHubService] Commit successful: {result.get('commit', {}).get('sha', 'unknown')[:7]}")
+                return {
+                    'success': True,
+                    'sha': result.get('commit', {}).get('sha'),
+                    'commit_url': result.get('commit', {}).get('html_url'),
+                    'file_url': result.get('content', {}).get('html_url'),
+                    'message': message
+                }
+            else:
+                raise Exception(f"GitHub API error {response.status_code}: {response.text}")
+                
+        except requests.Timeout:
+            raise Exception("GitHub API timeout")
+        except Exception as e:
+            raise Exception(f"Failed to commit file: {str(e)}")
+    
+    async def get_file_sha(self, repo_url: str, file_path: str, branch: str = 'main') -> Optional[str]:
+        """Get SHA of a file (needed for updates)"""
+        if not self.token:
+            return None
+        
+        parts = repo_url.rstrip('/').replace('.git', '').split('/')
+        owner = parts[-2]
+        repo = parts[-1]
+        
+        headers = {
+            'Authorization': f'Bearer {self.token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        
+        url = f'{self.base_url}/repos/{owner}/{repo}/contents/{file_path}'
+        
+        try:
+            response = requests.get(url, headers=headers, params={'ref': branch}, timeout=10)
+            if response.status_code == 200:
+                return response.json().get('sha')
+        except:
+            pass
+        
+        return None
