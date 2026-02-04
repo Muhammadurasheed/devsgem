@@ -320,5 +320,64 @@
     "error_message": null,
     "request_count": 0,
     "uptime_percentage": 100.0
+  },
+  "b86c5e01-5e06-4cc2-8e5d-3406c066a0d3": {
+    "id": "b86c5e01-5e06-4cc2-8e5d-3406c066a0d3",
+    "user_id": "Muhammadurasheed",
+    "service_name": "confirmit-ai-agent-server",
+    "repo_url": "https://github.com/Muhammadurasheed/confirmit-ai_agent_server.git",
+    "status": "live",
+    "url": "https://deploy-d-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app",
+    "gcp_url": null,
+    "region": "us-central1",
+    "memory": "512Mi",
+    "cpu": "1",
+    "env_vars": {},
+    "created_at": "2026-02-04T14:07:21.723809Z",
+    "updated_at": "2026-02-04T14:18:07.467217",
+    "last_deployed": null,
+    "build_logs": [],
+    "stages": [
+      {
+        "id": "repo_access",
+        "label": "Repo Access",
+        "status": "waiting"
+      },
+      {
+        "id": "code_analysis",
+        "label": "Code Analysis",
+        "status": "waiting"
+      },
+      {
+        "id": "dockerfile_generation",
+        "label": "Dockerfile Generation",
+        "status": "waiting"
+      },
+      {
+        "id": "env_vars",
+        "label": "Env Vars",
+        "status": "waiting"
+      },
+      {
+        "id": "security_scan",
+        "label": "Security Scan",
+        "status": "waiting"
+      },
+      {
+        "id": "container_build",
+        "label": "Container Build",
+        "status": "waiting"
+      },
+      {
+        "id": "cloud_deployment",
+        "label": "Cloud Deployment",
+        "status": "waiting"
+      }
+    ],
+    "framework": null,
+    "language": null,
+    "error_message": null,
+    "request_count": 0,
+    "uptime_percentage": 100.0
   }
 }

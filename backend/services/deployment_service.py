@@ -102,6 +102,12 @@ class DeploymentService:
             ]
         )
         
+        # [HEALING] Flush any buffered logs for this deployment ID
+        if hasattr(self, '_log_buffer') and deployment.id in self._log_buffer:
+            print(f"[DeploymentService] [HEALING] Flushing {len(self._log_buffer[deployment.id])} buffered logs for {deployment.id}")
+            deployment.build_logs.extend(self._log_buffer[deployment.id])
+            del self._log_buffer[deployment.id]
+
         self._deployments[deployment.id] = deployment
         self._save_deployments()
         return deployment
@@ -179,9 +185,9 @@ class DeploymentService:
             dep.status = status
             if error_message:
                 dep.error_message = error_message
-            dep.updated_at = datetime.utcnow().isoformat()
+            dep.updated_at = datetime.utcnow().isoformat() + "Z"
             if status == "live":
-                dep.last_deployed = datetime.utcnow().isoformat()
+                dep.last_deployed = datetime.utcnow().isoformat() + "Z"
                 # [FAANG] State Reconciliation: Mark all valid stages as success
                 for stage in dep.stages:
                     if stage.get('status') != 'error':
@@ -193,7 +199,7 @@ class DeploymentService:
         if deployment_id in self._deployments:
             dep = self._deployments[deployment_id]
             dep.url = url
-            dep.updated_at = datetime.utcnow().isoformat()
+            dep.updated_at = datetime.utcnow().isoformat() + "Z"
             self._save_deployments()
 
     async def update_framework_info(self, deployment_id: str, framework: str, language: str):
@@ -202,7 +208,7 @@ class DeploymentService:
             dep = self._deployments[deployment_id]
             dep.framework = framework
             dep.language = language
-            dep.updated_at = datetime.utcnow().isoformat()
+            dep.updated_at = datetime.utcnow().isoformat() + "Z"
             self._save_deployments()
 
     # [FAANG] Reconciler Interface
@@ -227,16 +233,23 @@ class DeploymentService:
         """
         if deployment_id in self._deployments:
             self._deployments[deployment_id].build_logs.append(log_line)
+        else:
+            # [HEALING] Buffer logs if deployment is still being created in background
+            if not hasattr(self, '_log_buffer'):
+                self._log_buffer = {}
+            if deployment_id not in self._log_buffer:
+                self._log_buffer[deployment_id] = []
+            self._log_buffer[deployment_id].append(log_line)
             
-            # [FAANG] Debounced Persistence Engine
-            now = time.time()
-            if not hasattr(self, '_last_save_time'):
-                self._last_save_time = 0
-            
-            # Save if urgent (e.g., error/success) or if debounce interval passed
-            if urgent or (now - self._last_save_time > 2.0):
-                self._save_deployments()
-                self._last_save_time = now
+        # [FAANG] Debounced Persistence Engine
+        now = time.time()
+        if not hasattr(self, '_last_save_time'):
+            self._last_save_time = 0
+        
+        # Save if urgent (e.g., error/success) or if debounce interval passed
+        if urgent or (now - self._last_save_time > 2.0):
+            self._save_deployments()
+            self._last_save_time = now
 
     def flush_logs(self, deployment_id: str):
         """Force a persistence sync for logs"""

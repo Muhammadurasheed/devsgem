@@ -960,7 +960,7 @@ class OrchestratorAgent:
         )
         
         # [FAANG] TERMINAL PULSE: Forcefully sync persistence layer on success
-        if deploy_result.get('type') != 'error' and deployment_id:
+        if deploy_result.get('type') == 'deployment_complete' and deployment_id:
             try:
                 final_link = deploy_result.get('deployment_url') or deploy_result.get('url')
                 print(f"[Orchestrator] 🚀 HEALING PULSE: Finalizing deployment {deployment_id} as LIVE")
