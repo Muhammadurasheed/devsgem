@@ -41,8 +41,8 @@ class Deployment:
     memory: str = "512Mi"
     cpu: str = "1"
     env_vars: Dict[str, str] = field(default_factory=dict)
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
     last_deployed: Optional[str] = None
     build_logs: List[str] = field(default_factory=list)
     stages: List[Dict] = field(default_factory=list)
@@ -88,7 +88,7 @@ class User:
     avatar_url: Optional[str] = None
     github_token: Optional[str] = None
     plan_tier: PlanTier = PlanTier.FREE
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
     settings: Dict[str, Any] = field(default_factory=dict)
     
     # Usage limits based on plan
@@ -148,7 +148,7 @@ class DeploymentEvent:
     deployment_id: str
     event_type: str  # build_started, build_complete, deploy_started, deploy_complete, error
     message: str
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
     metadata: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict:

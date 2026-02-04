@@ -59,11 +59,11 @@ const Footer = () => {
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-600 uppercase tracking-widest">
               <Zap className="w-3 h-3 text-cyan-500" />
-              Built for the Google ADK Hackathon
+              Built for the Gemini 3 Hackathon
             </div>
           </div>
           <div className="text-[10px] font-medium text-zinc-700 uppercase tracking-[0.3em]">
-            © 2026 DevGem • Deployed in 180s
+            © 2026 DevGem
           </div>
         </div>
       </div>

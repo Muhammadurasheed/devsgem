@@ -135,7 +135,16 @@ export default function DeploymentDetails() {
                                         </span>
                                         <span className="flex items-center gap-1">
                                             <Clock className="w-3.5 h-3.5" />
-                                            {formatDistanceToNow(new Date(deployment.updated_at || deployment.created_at))} ago
+                                            {(() => {
+                                                try {
+                                                    const dateStr = deployment.updated_at || deployment.created_at;
+                                                    // Ensure we have a valid date even if the string is messy
+                                                    const date = new Date(dateStr);
+                                                    return isNaN(date.getTime()) ? 'recently' : formatDistanceToNow(date, { addSuffix: true });
+                                                } catch (e) {
+                                                    return 'recently';
+                                                }
+                                            })()}
                                         </span>
                                     </div>
                                 </div>

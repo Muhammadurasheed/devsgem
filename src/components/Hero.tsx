@@ -6,14 +6,71 @@ import { motion, useScroll, useTransform, useSpring } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import Magnetic from "./ui/Magnetic";
+import { AnimatePresence } from "framer-motion";
 
 interface HeroProps {
   onCTAClick: (message: string) => void;
 }
 
+const PREVIEWS = [
+  {
+    type: 'dashboard',
+    title: 'devgem-production-v4',
+    status: 'Live',
+    region: 'us-central-1',
+    health: '100% Health',
+    metrics: [
+      { label: 'CPU', value: '4%' },
+      { label: 'RAM', value: '128MB' }
+    ],
+    logs: [
+      '[SYS] Cluster reconciliation complete...',
+      '[INF] Service live at devgem-00x.run.app'
+    ]
+  },
+  {
+    type: 'analysis',
+    title: 'agentic-analyzer-v1',
+    status: 'Analyzing',
+    region: 'eu-west-1',
+    health: 'Scanning...',
+    metrics: [
+      { label: 'FILES', value: '142' },
+      { label: 'THREATS', value: '0' }
+    ],
+    logs: [
+      '[SCAN] Detecting API endpoints...',
+      '[AI] Optimized Dockerfile generated.'
+    ]
+  },
+  {
+    type: 'scaling',
+    title: 'global-scaler-pro',
+    status: 'Active',
+    region: 'Multi-Region',
+    health: 'Replicating',
+    metrics: [
+      { label: 'INSTANCES', value: '12' },
+      { label: 'LATENCY', value: '28ms' }
+    ],
+    logs: [
+      '[SCAL] Traffic surge detected (+400%)',
+      '[GCP] Provisioning additional nodes...'
+    ]
+  }
+];
+
 const Hero = ({ onCTAClick }: HeroProps) => {
   const navigate = useNavigate();
+  const [currentPreview, setCurrentPreview] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentPreview((prev) => (prev + 1) % PREVIEWS.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ["start start", "end start"]
@@ -68,9 +125,9 @@ const Hero = ({ onCTAClick }: HeroProps) => {
 
       <motion.div
         style={{ y, opacity, scale }}
-        className="container relative z-10 mx-auto px-6"
+        className="container mx-auto px-6 relative z-10"
       >
-        <div className="flex flex-col lg:flex-row items-center gap-16 lg:gap-24">
+        <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-20 py-20 lg:py-24">
           {/* Left Column: Visual Impact */}
           <div className="flex-1 space-y-12 text-center lg:text-left">
             <motion.div
@@ -88,12 +145,12 @@ const Hero = ({ onCTAClick }: HeroProps) => {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 1, delay: 0.2 }}
-              className="text-6xl sm:text-7xl lg:text-8xl font-black tracking-tight leading-[0.9]"
+              className="text-4xl sm:text-6xl lg:text-[clamp(3.5rem,7vw,5.5rem)] font-black tracking-tight leading-[1.1] lg:leading-[1.05]"
             >
               <span className="text-white">DevGem:</span>
               <br />
               <span className="bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600">
-                Future-Proofed.
+                The Future of Deployment.
               </span>
             </motion.h1>
 
@@ -101,10 +158,10 @@ const Hero = ({ onCTAClick }: HeroProps) => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.4 }}
-              className="text-xl text-zinc-400 font-medium max-w-xl mx-auto lg:mx-0 leading-relaxed"
+              className="text-lg text-zinc-400 font-medium max-w-lg mx-auto lg:mx-0 leading-relaxed"
             >
               The next-gen cloud orchestrator for engineers who value precision.
-              Analyze, containerize, and scale absolute backend infra in 180 seconds.
+              Simply chat to deploy, scale, and manage your applications on Google Cloud Run.
             </motion.p>
 
             <motion.div
@@ -158,35 +215,63 @@ const Hero = ({ onCTAClick }: HeroProps) => {
                   </div>
                   <div className="text-[10px] text-zinc-600 font-mono tracking-widest uppercase">system-active</div>
                 </div>
-                <div className="flex-1 p-6 space-y-6">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center">
-                      <Logo size={32} />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs font-bold text-white uppercase tracking-wider">devgem-production-v4</div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                        <div className="text-[10px] text-zinc-500">us-central-1 • 100% Health</div>
+
+                <div className="flex-1 relative">
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={currentPreview}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.5, ease: "easeInOut" }}
+                      className="absolute inset-0 p-6 space-y-6"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center">
+                          <Logo size={32} />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-xs font-bold text-white uppercase tracking-wider">
+                            {PREVIEWS[currentPreview].title}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full animate-pulse ${PREVIEWS[currentPreview].status === 'Analyzing' ? 'bg-yellow-500' : 'bg-green-500'
+                              }`} />
+                            <div className="text-[10px] text-zinc-500">
+                              {PREVIEWS[currentPreview].region} • {PREVIEWS[currentPreview].health}
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    {[
-                      { label: 'CPU', value: '4%', color: 'blue' },
-                      { label: 'RAM', value: '128MB', color: 'purple' }
-                    ].map((stat, i) => (
-                      <div key={i} className="p-3 rounded-xl bg-white/5 border border-white/5 flex flex-col gap-1">
-                        <div className="text-[9px] text-zinc-600 font-bold uppercase">{stat.label}</div>
-                        <div className="text-sm font-black text-white">{stat.value}</div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        {PREVIEWS[currentPreview].metrics.map((stat, i) => (
+                          <div key={i} className="p-3 rounded-xl bg-white/5 border border-white/5 flex flex-col gap-1">
+                            <div className="text-[9px] text-zinc-600 font-bold uppercase">{stat.label}</div>
+                            <div className="text-xl font-black text-white">{stat.value}</div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  <div className="flex-1 rounded-xl bg-black border border-white/5 p-3 font-mono text-[9px] text-cyan-400 overflow-hidden opacity-50">
-                    <div>[SYS] Cluster reconciliation complete...</div>
-                    <div>[INF] Service live at devgem-00x.run.app</div>
-                    <div className="animate-pulse">_</div>
-                  </div>
+
+                      <div className="p-4 rounded-xl bg-black/40 border border-white/5 font-mono text-[10px] space-y-1">
+                        {PREVIEWS[currentPreview].logs.map((log, i) => (
+                          <div key={i} className={cn(
+                            "flex gap-2",
+                            log.includes('[ERR]') ? 'text-red-400' :
+                              log.includes('[AI]') ? 'text-cyan-400' : 'text-zinc-500'
+                          )}>
+                            <span className="opacity-30">{'>'}</span>
+                            <span>{log}</span>
+                          </div>
+                        ))}
+                        <motion.div
+                          animate={{ opacity: [0, 1] }}
+                          transition={{ repeat: Infinity, duration: 0.8 }}
+                          className="w-1.5 h-3 bg-cyan-500 inline-block align-middle ml-1"
+                        />
+                      </div>
+                    </motion.div>
+                  </AnimatePresence>
                 </div>
               </div>
 

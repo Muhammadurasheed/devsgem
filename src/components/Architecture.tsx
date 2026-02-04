@@ -11,6 +11,8 @@ const Architecture = () => {
         <div className="absolute bottom-0 right-0 w-[800px] h-[800px] bg-[radial-gradient(circle_at_100%_100%,rgba(139,92,246,0.1),transparent_70%)]" />
       </div>
 
+
+      
       <div className="container mx-auto px-6 relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
