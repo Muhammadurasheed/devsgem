@@ -1039,18 +1039,26 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                         safe_user = re.sub(r'[^a-zA-Z0-9]', '', user_name).lower()
                         safe_repo = re.sub(r'[^a-zA-Z0-9-]', '-', repo_name).lower()
                         safe_repo = re.sub(r'-+', '-', safe_repo).strip('-')
-                        secret_id = f"devgem-{safe_user}-{safe_repo}-env"
-                        
                         try:
-                            print(f"[WebSocket] [GSM] Attempting to save to Secret Manager: {secret_id}")
-                            success = await user_orchestrator.gcloud_service.create_or_update_secret(secret_id, session_env_vars)
+                            from services.secret_sync_service import secret_sync_service
+                            print(f"[WebSocket] [GSM] Attempting to save to Secret Manager via unified service for repo: {repo_url}")
+                            
+                            # Clean env vars for GSM (remove metadata)
+                            gsm_payload = {k: v.get('value') if isinstance(v, dict) else v for k, v in session_env_vars.items()}
+                            
+                            success = await secret_sync_service.save_to_secret_manager(
+                                deployment_id=None,
+                                user_id=user_id,
+                                env_vars=gsm_payload,
+                                repo_url=repo_url
+                            )
                             await asyncio.sleep(0) # Yield after GCP call
                             if success:
-                                print(f"[WebSocket] [GSM] ✅ Cloud save success.")
+                                print(f"[WebSocket] [GSM] ✅ Unified cloud save success.")
                             else:
-                                print(f"[WebSocket] [GSM] ⚠️ Cloud save returned failure.")
+                                print(f"[WebSocket] [GSM] ⚠️ Unified cloud save returned failure.")
                         except Exception as gsm_e:
-                            print(f"[WebSocket] [GSM] ❌ Cloud save failed: {gsm_e}")
+                            print(f"[WebSocket] [GSM] ❌ Unified cloud save failed: {gsm_e}")
 
                         # 3. Strategy B: Global Local Store (Backup)
                         # Saves to ~/.gemini/antigravity/env_store/<repo_hash>.json
@@ -1233,7 +1241,7 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                         try:
                             print(f"[WebSocket] 💾 Persisting deployment (Standard): {deploy_data.get('service_name')}")
                             dep_record = deployment_service.create_deployment(
-                                user_id=user_id, # [FIX] Use real user_id
+                                user_id=user_id,
                                 service_name=deploy_data.get('service_name', 'unknown'),
                                 repo_url=deploy_data.get('repo_url', user_orchestrator.project_context.get('repo_url', '')),
                                 region=deploy_data.get('region', 'us-central1'),
@@ -1241,10 +1249,33 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                             )
                             deployment_service.update_deployment_status(
                                 dep_record.id,
-                                str(DeploymentStatus.LIVE), # Cast enum to string if needed, or update_deployment_status handles it
+                                str(DeploymentStatus.LIVE),
                                 gcp_url=deploy_data.get('url')
                             )
                             print(f"[WebSocket] ✅ Deployment persisted: {dep_record.id}")
+
+                            # [MAANG BRIDGE] Transfer Secrets from Repo-ID to Deployment-ID
+                            try:
+                                from services.secret_sync_service import secret_sync_service
+                                repo_url = deploy_data.get('repo_url', user_orchestrator.project_context.get('repo_url', ''))
+                                if repo_url:
+                                    print(f"[WebSocket] [MAANG] Bridging secrets: {repo_url} -> {dep_record.id}")
+                                    env_vars = await secret_sync_service.load_from_secret_manager(
+                                        deployment_id=None,
+                                        user_id=user_id,
+                                        repo_url=repo_url
+                                    )
+                                    if env_vars:
+                                        # Save under deployment_id for permanent dashboard access
+                                        await secret_sync_service.save_to_secret_manager(
+                                            deployment_id=dep_record.id,
+                                            user_id=user_id,
+                                            env_vars=env_vars,
+                                            repo_url=repo_url
+                                        )
+                                        print(f"[WebSocket] [MAANG] ✅ Secrets bridged successfully.")
+                            except Exception as b_err:
+                                print(f"[WebSocket] [MAANG] ⚠️ Secret bridging skipped/failed: {b_err}")
                         except Exception as p_err:
                             print(f"[WebSocket] ❌ Persistence failed: {p_err}")
                     

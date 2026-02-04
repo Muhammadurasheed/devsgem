@@ -1,5 +1,5 @@
-import { Card } from "@/components/ui/card";
-import { MessageSquare, Scan, FileCode, Rocket, CheckCircle, ArrowRight } from "lucide-react";
+import { motion } from "framer-motion";
+import { MessageSquare, Scan, FileCode, Rocket, CheckCircle, ArrowRight, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface HowItWorksProps {
@@ -9,101 +9,130 @@ interface HowItWorksProps {
 const steps = [
   {
     icon: MessageSquare,
-    title: "Chat with DevGem",
-    description: "Simply describe what you want to deploy. Connect your GitHub repo or upload your code.",
-    step: "01"
+    title: "Narrative Brief",
+    description: "Simply describe your vision. Connect a repository or provide a raw idea—DevGem's agents initiate the architectural brief immediately.",
+    step: "01",
+    color: "cyan"
   },
   {
     icon: Scan,
-    title: "AI Analyzes Everything",
-    description: "Code Analyzer detects your framework, dependencies, and configuration in seconds.",
-    step: "02"
+    title: "Omni-Analysis",
+    description: "The Code Analyzer dissects every line, identifies dependencies, and builds a comprehensive architectural map of your application.",
+    step: "02",
+    color: "blue"
   },
   {
     icon: FileCode,
-    title: "Docker Expert Builds",
-    description: "Generates an optimized Dockerfile tailored to your stack. Multi-stage, production-ready.",
-    step: "03"
+    title: "Atomic Construction",
+    description: "Docker Experts generate optimized, multi-stage containers. Every layer is precision-tuned for speed and security.",
+    step: "03",
+    color: "purple"
   },
   {
     icon: Rocket,
-    title: "Deploy to Cloud Run",
-    description: "Cloud Run Specialist configures and deploys with optimal settings. Environment variables, scaling, security—all handled.",
-    step: "04"
+    title: "Global Provisioning",
+    description: "Cloud Specilaists orchestrate variables, scaling policies, and IAM permissions. Your app is provisioned onto GCP infra automatically.",
+    step: "04",
+    color: "pink"
   },
   {
     icon: CheckCircle,
-    title: "Live in 3 Minutes",
-    description: "Your app is deployed with HTTPS, monitoring, and health checks. DevGem stays available for debugging and optimization.",
-    step: "05"
+    title: "Production Live",
+    description: "Within 180 seconds, your service is live with a custom URL, SSL, and health-monitors. The future of deployment is here.",
+    step: "05",
+    color: "green"
   }
 ];
 
 const HowItWorks = ({ onCTAClick }: HowItWorksProps) => {
   return (
-    <section className="py-24 relative">
+    <section id="how-it-works" className="py-32 relative bg-[#020202]">
       <div className="container mx-auto px-6">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-5xl font-bold">
-            From Code to Cloud in <span className="gradient-text">3 Minutes</span>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1 }}
+          viewport={{ once: true }}
+          className="text-center mb-32 space-y-6"
+        >
+          <div className="inline-block px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-zinc-500 text-[10px] font-bold uppercase tracking-[0.2em] mb-4">
+            Deployment Lifecycle
+          </div>
+          <h2 className="text-5xl md:text-7xl font-black text-white tracking-tighter">
+            Zero to <span className="text-cyan-400">Production.</span>
+            <br />
+            <span className="text-zinc-600">In 180 Seconds.</span>
           </h2>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            A seamless deployment experience that feels like pair programming with an expert DevOps engineer.
-          </p>
-        </div>
-        
-        <div className="max-w-5xl mx-auto space-y-8">
-          {steps.map((step, index) => {
-            const Icon = step.icon;
-            const isLast = index === steps.length - 1;
-            
-            return (
-              <div key={index} className="relative">
-                <Card className="p-8 bg-card/50 backdrop-blur-sm border-border/50 hover:border-primary/50 transition-all duration-300 group">
-                  <div className="flex flex-col md:flex-row gap-6 items-start">
-                    {/* Step number and icon */}
-                    <div className="flex-shrink-0">
-                      <div className="relative">
-                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                          <Icon className="h-8 w-8 text-primary" />
-                        </div>
-                        <div className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
-                          {step.step}
-                        </div>
+        </motion.div>
+
+        <div className="max-w-4xl mx-auto relative">
+          {/* Vertical Connecting Line */}
+          <div className="absolute left-[39px] md:left-1/2 top-4 bottom-4 w-px bg-gradient-to-b from-cyan-500/50 via-purple-500/50 to-green-500/50 hidden md:block" />
+
+          <div className="space-y-24">
+            {steps.map((step, index) => {
+              const Icon = step.icon;
+              const isEven = index % 2 === 0;
+
+              return (
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, x: isEven ? -50 : 50 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.8, delay: index * 0.1 }}
+                  viewport={{ once: true, margin: "-100px" }}
+                  className="relative flex flex-col md:flex-row items-center gap-12"
+                >
+                  {/* Content Panel */}
+                  <div className={`flex-1 w-full ${isEven ? 'md:text-right' : 'md:order-2 text-left'}`}>
+                    <div className={`space-y-4 p-8 rounded-[2rem] bg-zinc-950/20 border border-white/5 backdrop-blur-3xl hover:border-white/10 transition-colors group relative`}>
+                      <div className={`absolute top-0 ${isEven ? 'right-0' : 'left-0'} p-6 opacity-5 group-hover:opacity-10 transition-opacity`}>
+                        <Icon className="w-12 h-12" />
                       </div>
-                    </div>
-                    
-                    {/* Content */}
-                    <div className="flex-1 space-y-2">
-                      <h3 className="text-2xl font-bold group-hover:gradient-text transition-all">
-                        {step.title}
-                      </h3>
-                      <p className="text-muted-foreground text-lg leading-relaxed">
-                        {step.description}
-                      </p>
+                      <h3 className="text-2xl font-black text-white tracking-tight">{step.title}</h3>
+                      <p className="text-zinc-500 text-sm leading-relaxed max-w-md ml-auto mr-0 h-full">{step.description}</p>
                     </div>
                   </div>
-                </Card>
-                
-                {/* Connecting line */}
-                {!isLast && (
-                  <div className="hidden md:block absolute left-8 top-full w-0.5 h-8 bg-gradient-to-b from-primary/50 to-transparent" />
-                )}
-              </div>
-            );
-          })}
+
+                  {/* Icon Node */}
+                  <div className="relative z-10 flex-shrink-0">
+                    <motion.div
+                      whileHover={{ scale: 1.2, rotate: 360 }}
+                      className="w-20 h-20 rounded-full bg-zinc-950 border-4 border-zinc-900 flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,1)] relative group"
+                    >
+                      <div className="absolute inset-0 rounded-full border border-white/10 group-hover:border-cyan-500/50 transition-colors" />
+                      <Icon className="w-8 h-8 text-white relative z-10" />
+                      <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-white text-black flex items-center justify-center text-[10px] font-black tracking-tighter">
+                        {step.step}
+                      </div>
+                    </motion.div>
+                  </div>
+
+                  {/* Spatial Balancer */}
+                  <div className="flex-1 hidden md:block" />
+                </motion.div>
+              );
+            })}
+          </div>
         </div>
-        
-        <div className="text-center mt-12">
-          <Button
-            size="lg"
-            onClick={() => onCTAClick("I want to deploy my app to Cloud Run")}
-            className="text-lg px-8 py-6 bg-gradient-to-r from-primary to-secondary hover:opacity-90 transition-opacity group"
+
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          whileInView={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.8 }}
+          viewport={{ once: true }}
+          className="text-center mt-32"
+        >
+          <button
+            onClick={() => onCTAClick("I am ready to deploy. Initialize workspace now.")}
+            className="group relative px-12 py-6 bg-white text-black text-xl font-black rounded-3xl transition-all duration-300 hover:scale-105 active:scale-95 shadow-[0_0_50px_rgba(255,255,255,0.2)]"
           >
-            Deploy in 3 Minutes
-            <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
-          </Button>
-        </div>
+            <div className="absolute inset-0 bg-gradient-to-r from-cyan-400 to-purple-500 opacity-0 group-hover:opacity-10 transition-opacity rounded-3xl" />
+            <span className="flex items-center gap-3">
+              Initialize Production <ArrowRight className="w-6 h-6 group-hover:translate-x-2 transition-transform" />
+            </span>
+          </button>
+        </motion.div>
       </div>
     </section>
   );

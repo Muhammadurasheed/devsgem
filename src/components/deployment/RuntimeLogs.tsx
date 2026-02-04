@@ -12,20 +12,31 @@ interface RuntimeLogsProps {
     className?: string;
 }
 
-export const RuntimeLogs = ({ deploymentId, serviceName, className }: RuntimeLogsProps) => {
-    const [logs, setLogs] = useState<string[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+// [MAANG] Module-level cache for instant re-entry
+const LOG_CACHE: Record<string, string[]> = {};
+
+export const RuntimeLogs = ({
+    deploymentId,
+    serviceName,
+    className
+}: RuntimeLogsProps) => {
+    const [logs, setLogs] = useState<string[]>(LOG_CACHE[deploymentId] || []);
+    const [isLoading, setIsLoading] = useState(!LOG_CACHE[deploymentId]);
     const [isAutoScroll, setIsAutoScroll] = useState(true);
     const [filter, setFilter] = useState('');
     const scrollRef = useRef<HTMLDivElement>(null);
-    const pollInterval = useRef<any>(null);
+    const pollInterval = useRef<NodeJS.Timeout>();
 
     const fetchLogs = async () => {
         try {
             const response = await fetch(`http://localhost:8000/api/deployments/${deploymentId}/runtime-logs?limit=100`);
             if (response.ok) {
                 const data = await response.json();
-                setLogs(data.logs || []);
+                const newLogs = data.logs || [];
+
+                // [MAANG] Atomic Update & Sync with Cache
+                setLogs(newLogs);
+                LOG_CACHE[deploymentId] = newLogs;
             }
         } catch (error) {
             console.error('Failed to fetch runtime logs:', error);

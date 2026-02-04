@@ -1,22 +1,42 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { DashboardLayout } from '@/components/DashboardLayout';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { RuntimeLogs } from '@/components/deployment/RuntimeLogs';
-import { TerminalView } from '@/components/deployment/TerminalView';
-import { DeploymentPreview } from '@/components/deployment/DeploymentPreview';
-import { AutoDeployToggle } from '@/components/deployment/AutoDeployToggle';
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { formatDistanceToNow } from "date-fns";
+import {
+    Layout,
+    Settings,
+    Activity,
+    Terminal,
+    Globe,
+    GitBranch,
+    Clock,
+    ExternalLink,
+    Trash2,
+    ShieldCheck,
+    AlertCircle,
+    AlertTriangle,
+    CheckCircle2,
+    Database,
+    Cpu,
+    Zap,
+    History,
+    ArrowLeft
+} from "lucide-react";
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api/client';
+import { DashboardLayout } from "@/components/DashboardLayout";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { DeploymentPreview } from "@/components/deployment/DeploymentPreview";
+import { RuntimeLogs } from "@/components/deployment/RuntimeLogs";
+import { TerminalView } from "@/components/deployment/TerminalView";
+import EnvManager from "./EnvManager";
+import { AutoDeployToggle } from "@/components/deployment/AutoDeployToggle";
+import { BrandingIcon } from "@/components/BrandingIcon";
 import { DomainManager } from '@/components/deployment/DomainManager';
-import EnvManager from '@/pages/EnvManager';
-import { ExternalLink, GitBranch, Clock, ArrowLeft, Terminal, Activity, CheckCircle2, ShieldAlert } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { toast } from 'sonner';
-import { useDeployments } from '@/hooks/useDeployments';
 import { resolveLogo } from '@/lib/logos';
+import { Deployment } from "@/hooks/useDeployments";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -31,16 +51,33 @@ import {
 
 export default function DeploymentDetails() {
     const { deploymentId } = useParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState("overview");
-    const { deployments, isLoading, deleteDeployment } = useDeployments();
+    const { toast } = useToast();
+    const activeTab = searchParams.get('tab') || 'overview';
 
-    // Instant lookup from cache (FAANG Strategy)
-    const deployment = deployments.find(d => d.id === deploymentId);
+    // [MAANG] High-Performance Data Rehydration
+    const {
+        data: deployment,
+        isLoading,
+        error
+    } = useQuery<Deployment>({
+        queryKey: ['deployment', deploymentId],
+        queryFn: async () => {
+            if (!deploymentId) throw new Error("No deployment ID provided");
+            return await apiClient.getDeployment(deploymentId) as Deployment;
+        },
+        refetchInterval: 10000, // Poll every 10s for status updates
+        staleTime: 60000, // Keep data fresh for 1 min
+    });
 
-    if (isLoading && !deployment) return (
+    const setActiveTab = (tab: string) => {
+        setSearchParams({ tab });
+    };
+
+    if (error) return (
         <DashboardLayout>
-            <div className="p-8 text-center text-muted-foreground">Loading deployment details...</div>
+            <div className="p-8 text-center text-red-500">Error loading deployment: {error.message}</div>
         </DashboardLayout>
     );
 
@@ -255,7 +292,7 @@ export default function DeploymentDetails() {
                             <Card className="border-red-500/20 bg-red-500/5">
                                 <CardHeader>
                                     <CardTitle className="text-red-500 flex items-center gap-2">
-                                        <ShieldAlert className="w-5 h-5" /> Danger Zone
+                                        <AlertTriangle className="w-5 h-5" /> Danger Zone
                                     </CardTitle>
                                     <CardDescription>Irreversible actions requiring confirmation.</CardDescription>
                                 </CardHeader>
@@ -278,11 +315,20 @@ export default function DeploymentDetails() {
                                                 <AlertDialogAction
                                                     onClick={async () => {
                                                         try {
-                                                            await deleteDeployment(deploymentId!);
-                                                            navigate('/dashboard');
-                                                            toast.success("Deployment deleted successfully");
+                                                            if (deploymentId) {
+                                                                await apiClient.deleteDeployment(deploymentId);
+                                                                navigate('/dashboard');
+                                                                toast({
+                                                                    title: "Deployment deleted successfully",
+                                                                    description: "All resources have been decommissioned.",
+                                                                });
+                                                            }
                                                         } catch (err) {
-                                                            // Error handled by hook
+                                                            toast({
+                                                                title: "Failed to delete deployment",
+                                                                description: err instanceof Error ? err.message : "Internal error",
+                                                                variant: "destructive"
+                                                            });
                                                         }
                                                     }}
                                                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"

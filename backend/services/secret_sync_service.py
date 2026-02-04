@@ -37,21 +37,45 @@ class SecretSyncService:
     def _get_secret_id(self, deployment_id: str, user_id: str) -> str:
         """
         Generate a unique secret ID for this deployment.
-        Format: devgem-{hash(user_id)}-{deployment_id_prefix}
+        [GOOGLE STANDARDS] Deterministic and collision-resistant.
         """
         user_hash = hashlib.md5(user_id.encode()).hexdigest()[:8]
         deployment_prefix = deployment_id[:12]
         return f"devgem-{user_hash}-{deployment_prefix}"
+
+    def _get_repo_secret_id(self, repo_url: str, user_id: str) -> str:
+        """
+        [FAANG] Bridge Secret ID for the pre-deployment (analyze) phase.
+        Uses repo URL to identify secrets before a deployment_id exists.
+        """
+        import re
+        # Extract owner/repo from URL
+        parts = repo_url.strip('/').split('/')
+        if len(parts) >= 2:
+            owner = parts[-2]
+            repo = parts[-1].replace('.git', '')
+        else:
+            owner = 'default'
+            repo = parts[-1].replace('.git', '')
+            
+        safe_owner = re.sub(r'[^a-zA-Z0-9]', '', owner).lower()
+        safe_repo = re.sub(r'[^a-zA-Z0-9-]', '-', repo).lower()
+        safe_repo = re.sub(r'-+', '-', safe_repo).strip('-')
+        
+        # Add user hash for isolation
+        user_hash = hashlib.md5(user_id.encode()).hexdigest()[:8]
+        return f"devgem-{user_hash}-{safe_repo}-env"
         
     async def save_to_secret_manager(
         self,
-        deployment_id: str,
+        deployment_id: Optional[str],
         user_id: str,
-        env_vars: Dict[str, str]
+        env_vars: Dict[str, str],
+        repo_url: Optional[str] = None
     ) -> bool:
         """
         Save environment variables to Google Secret Manager.
-        Called when user saves .env changes in the dashboard.
+        [FAANG] Supports both Deployment-id and Repo-URL based identities.
         
         Returns:
             bool: True if successful
@@ -60,13 +84,21 @@ class SecretSyncService:
             print("[SecretSync] ERROR: No GCloudService configured")
             return False
             
-        secret_id = self._get_secret_id(deployment_id, user_id)
+        # Prioritize deployment_id, fallback to repo_url
+        if deployment_id:
+            secret_id = self._get_secret_id(deployment_id, user_id)
+        elif repo_url:
+            secret_id = self._get_repo_secret_id(repo_url, user_id)
+        else:
+            print("[SecretSync] ERROR: Neither deployment_id nor repo_url provided")
+            return False
         
         # Prepare payload - store as JSON
         payload = json.dumps({
             "env_vars": env_vars,
             "updated_at": datetime.utcnow().isoformat(),
             "deployment_id": deployment_id,
+            "repo_url": repo_url,
             "user_id": user_id
         })
         
@@ -74,43 +106,50 @@ class SecretSyncService:
         
         success = await self.gcloud_service.create_or_update_secret(secret_id, payload)
         
-        if success:
+        if success and deployment_id:
             self._sync_cache[deployment_id] = datetime.utcnow()
-            print(f"[SecretSync] Successfully synced to Secret Manager")
             
         return success
         
     async def load_from_secret_manager(
         self,
-        deployment_id: str,
-        user_id: str
+        deployment_id: Optional[str],
+        user_id: str,
+        repo_url: Optional[str] = None
     ) -> Optional[Dict[str, str]]:
         """
-        Load environment variables from Google Secret Manager.
-        Called during deployment or dashboard load.
-        
-        Returns:
-            Dict of env vars, or None if not found
+        Load environment variables from Google Secret Manager with Hybrid Search.
+        [GOOGLE] Searches by deployment identity first, then by bridge identity.
         """
         if not self.gcloud_service:
             print("[SecretSync] WARNING: No GCloudService configured")
             return None
             
-        secret_id = self._get_secret_id(deployment_id, user_id)
-        
-        print(f"[SecretSync] Loading env vars from GSM: {secret_id}")
-        
-        payload_str = await self.gcloud_service.access_secret(secret_id)
-        
-        if not payload_str:
-            return None
-            
-        try:
-            payload = json.loads(payload_str)
-            return payload.get("env_vars", {})
-        except json.JSONDecodeError:
-            print(f"[SecretSync] Failed to parse secret payload")
-            return None
+        # 1. Primary Search: Deployment ID
+        if deployment_id:
+            secret_id = self._get_secret_id(deployment_id, user_id)
+            print(f"[SecretSync] Searching GSM by Deployment ID: {secret_id}")
+            payload_str = await self.gcloud_service.access_secret(secret_id)
+            if payload_str:
+                try:
+                    payload = json.loads(payload_str)
+                    return payload.get("env_vars", {})
+                except Exception:
+                    pass
+
+        # 2. Secondary Search: Repo URL (The bridge secret)
+        if repo_url:
+            repo_secret_id = self._get_repo_secret_id(repo_url, user_id)
+            print(f"[SecretSync] Searching GSM by Bridge ID (Repo): {repo_secret_id}")
+            payload_str = await self.gcloud_service.access_secret(repo_secret_id)
+            if payload_str:
+                try:
+                    payload = json.loads(payload_str)
+                    return payload.get("env_vars", {})
+                except Exception:
+                    pass
+
+        return None
             
     async def update_cloud_run_env_vars(
         self,

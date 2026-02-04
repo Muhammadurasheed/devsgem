@@ -20,7 +20,9 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-[#020202] relative selection:bg-cyan-500/30">
+      {/* [APPLE] Grain Noise Texture */}
+      <div className="fixed inset-0 z-[100] pointer-events-none opacity-[0.03] bg-[url('https://grainy-gradients.vercel.app/noise.svg')] mix-blend-overlay" />
       <Navbar />
       <Hero onCTAClick={handleCTAClick} />
       <Features onAgentClick={handleCTAClick} />

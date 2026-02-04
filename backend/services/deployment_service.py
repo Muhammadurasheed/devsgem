@@ -220,24 +220,21 @@ class DeploymentService:
         # For now, just logging to satisfy MonitoringAgent contract
         return True
 
-    def add_build_log(self, deployment_id: str, log_line: str):
+    def add_build_log(self, deployment_id: str, log_line: str, urgent: bool = False):
         """
         Append a build log line and persist [HIGH THROUGHPUT]
-        [FAANG] Uses a debounced save strategy to prevent O(N^2) I/O pressure.
+        [FAANG] Uses a debounced save strategy with Atomic bypassing for critical lines.
         """
         if deployment_id in self._deployments:
             self._deployments[deployment_id].build_logs.append(log_line)
             
             # [FAANG] Debounced Persistence Engine
-            # We only force a sync to disk if a certain amount of time has passed
-            # or if the log buffer for this deployment is getting large.
             now = time.time()
             if not hasattr(self, '_last_save_time'):
                 self._last_save_time = 0
             
-            # Save at most once every 2 seconds for high-velocity logs
-            # or if it's been more than 5 seconds since any log.
-            if now - self._last_save_time > 2.0:
+            # Save if urgent (e.g., error/success) or if debounce interval passed
+            if urgent or (now - self._last_save_time > 2.0):
                 self._save_deployments()
                 self._last_save_time = now
 

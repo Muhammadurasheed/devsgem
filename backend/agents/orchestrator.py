@@ -2411,6 +2411,8 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                             from services.deployment_service import deployment_service
                             for log_line in logs:
                                 deployment_service.add_build_log(deployment_id, log_line)
+                            # [GOOGLE] Atomic Flush: Ensure this batch is locked to disk immediately
+                            deployment_service.flush_logs(deployment_id)
                         except Exception as log_err:
                             print(f"[Orchestrator] [WARNING] Log bridging failed: {log_err}")
 
