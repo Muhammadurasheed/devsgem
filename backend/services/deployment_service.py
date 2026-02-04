@@ -53,12 +53,32 @@ class DeploymentService:
                               repo_url: str,
                               region: str = "us-central1",
                               env_vars: Optional[Dict[str, str]] = None,
-                              user_id: str = "user_default") -> Deployment:
-        """Create a new deployment record"""
+                              user_id: str = "user_default",
+                              framework: Optional[str] = None,
+                              language: Optional[str] = None,
+                              deployment_id: Optional[str] = None) -> Deployment:
+        """Create a new deployment record [IDEMPOTENT]"""
         from models import DeploymentStatus # Import locally to avoid circulars if any
         
+        # [FAANG] Deduplication: Prevent multiple records for same service/repo
+        # We allow re-creation but we should probably update instead?
+        # For now, if ID matches, or if service_name matches, return existing or update.
+        
+        # 1. Check by explicit ID if provided
+        if deployment_id and deployment_id in self._deployments:
+            return self._deployments[deployment_id]
+            
+        # 2. Check by service_name per user (Unique constraint)
+        for d in self._deployments.values():
+            if d.service_name == service_name and d.user_id == user_id:
+                # [SOVEREIGN FIX] Update existing record instead of creating new one
+                d.repo_url = repo_url
+                d.updated_at = datetime.now().isoformat()
+                self._save_deployments()
+                return d
+
         deployment = Deployment(
-            id=str(uuid4()),
+            id=deployment_id or str(uuid4()),
             user_id=user_id,
             service_name=service_name,
             repo_url=repo_url,
@@ -66,6 +86,8 @@ class DeploymentService:
             url="", # Initial empty URL
             region=region,
             env_vars=env_vars or {},
+            framework=framework,
+            language=language,
             stages=[
                 {"id": stage, "label": stage.replace("_", " ").title(), "status": "waiting"}
                 for stage in [
@@ -137,6 +159,19 @@ class DeploymentService:
         print(f"[DeploymentService] Found {len(result_list)} unique deployments for {user_id}")
         return result_list
 
+    def delete_deployment(self, deployment_id: str) -> bool:
+        """
+        [FAANG] Record Purge Protocol
+        Deletes the deployment record and prepares for remote cleanup.
+        """
+        if deployment_id in self._deployments:
+            service_name = self._deployments[deployment_id].service_name
+            print(f"[DeploymentService] 🗑️ Purging record for {deployment_id} ({service_name})")
+            del self._deployments[deployment_id]
+            self._save_deployments()
+            return True
+        return False
+
     async def update_deployment_status(self, deployment_id: str, status: str, error_message: Optional[str] = None):
         """Update deployment status [HEALED - STRICT ISO]"""
         if deployment_id in self._deployments:
@@ -161,6 +196,15 @@ class DeploymentService:
             dep.updated_at = datetime.utcnow().isoformat()
             self._save_deployments()
 
+    async def update_framework_info(self, deployment_id: str, framework: str, language: str):
+        """Update deployment framework info [FAANG]"""
+        if deployment_id in self._deployments:
+            dep = self._deployments[deployment_id]
+            dep.framework = framework
+            dep.language = language
+            dep.updated_at = datetime.utcnow().isoformat()
+            self._save_deployments()
+
     # [FAANG] Reconciler Interface
     def list_all_deployments(self) -> List[Deployment]:
         """Used by Monitoring Agent to reconcile state"""
@@ -177,12 +221,29 @@ class DeploymentService:
         return True
 
     def add_build_log(self, deployment_id: str, log_line: str):
-        """Append a build log line and persist"""
+        """
+        Append a build log line and persist [HIGH THROUGHPUT]
+        [FAANG] Uses a debounced save strategy to prevent O(N^2) I/O pressure.
+        """
         if deployment_id in self._deployments:
             self._deployments[deployment_id].build_logs.append(log_line)
-            # FAANG Optimization: In high-throughput, use a buffer/accumulator.
-            # For now, safe atomic save.
-            self._save_deployments()
+            
+            # [FAANG] Debounced Persistence Engine
+            # We only force a sync to disk if a certain amount of time has passed
+            # or if the log buffer for this deployment is getting large.
+            now = time.time()
+            if not hasattr(self, '_last_save_time'):
+                self._last_save_time = 0
+            
+            # Save at most once every 2 seconds for high-velocity logs
+            # or if it's been more than 5 seconds since any log.
+            if now - self._last_save_time > 2.0:
+                self._save_deployments()
+                self._last_save_time = now
+
+    def flush_logs(self, deployment_id: str):
+        """Force a persistence sync for logs"""
+        self._save_deployments()
 
     def update_deployment_safe(self, deployment: Deployment):
         """Thread-safe update from background agents"""

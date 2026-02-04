@@ -8,28 +8,29 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { 
-  TrendingUp, 
-  AlertTriangle, 
+import {
+  TrendingUp,
+  AlertTriangle,
   Zap,
   Activity,
   HardDrive,
   Globe,
   ArrowUpRight,
   Calendar,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUsage } from '@/hooks/useUsage';
 
 const Usage = () => {
   const navigate = useNavigate();
-  const { 
-    todayUsage, 
-    summary, 
-    isLoading, 
+  const {
+    todayUsage,
+    summary,
+    isLoading,
     error,
-    getRequestsPercentage, 
+    getRequestsPercentage,
     getMemoryPercentage,
     isApproachingLimit
   } = useUsage();
@@ -62,12 +63,20 @@ const Usage = () => {
   }
 
   if (error || !todayUsage) {
+    const { refresh } = useUsage();
     return (
       <DashboardLayout>
         <div className="container mx-auto px-4 py-8 max-w-7xl">
-          <Card className="p-8 text-center">
-            <p className="text-destructive mb-4">{error || 'Failed to load usage data'}</p>
-            <Button onClick={() => window.location.reload()}>Retry</Button>
+          <Card className="p-8 text-center border-destructive/20 bg-destructive/5">
+            <p className="text-destructive mb-4 font-medium">{error || 'Failed to load usage data'}</p>
+            <Button
+              variant="outline"
+              className="gap-2 border-destructive/30 hover:bg-destructive/10"
+              onClick={() => refresh()}
+            >
+              <RefreshCw className="w-4 h-4" />
+              Retry
+            </Button>
           </Card>
         </div>
       </DashboardLayout>
@@ -296,7 +305,7 @@ const Usage = () => {
                   <li>• 512MB RAM</li>
                 </ul>
               </div>
-              
+
               <div className="p-4 rounded-lg border-2 border-primary bg-primary/5">
                 <Badge className="mb-2">Recommended</Badge>
                 <h4 className="font-semibold mb-2">Pro</h4>
@@ -313,7 +322,7 @@ const Usage = () => {
                   <ArrowUpRight className="w-4 h-4 ml-2" />
                 </Button>
               </div>
-              
+
               <div className="p-4 rounded-lg border bg-card">
                 <h4 className="font-semibold mb-2">Enterprise</h4>
                 <p className="text-2xl font-bold mb-1">Custom</p>

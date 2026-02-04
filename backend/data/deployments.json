@@ -1,118 +1,4 @@
 {
-  "2ef694be-a222-4701-a51a-66c8003382dc": {
-    "id": "2ef694be-a222-4701-a51a-66c8003382dc",
-    "user_id": "Muhammadurasheed",
-    "service_name": "energram",
-    "repo_url": "https://github.com/psyberpath/energram.git",
-    "status": "pending",
-    "url": "",
-    "gcp_url": null,
-    "region": "us-central1",
-    "memory": "512Mi",
-    "cpu": "1",
-    "env_vars": {},
-    "created_at": "2026-02-03T02:53:33.168071",
-    "updated_at": "2026-02-03T02:53:33.168128",
-    "last_deployed": null,
-    "build_logs": [],
-    "stages": [
-      {
-        "id": "repo_access",
-        "label": "Repo Access",
-        "status": "waiting"
-      },
-      {
-        "id": "code_analysis",
-        "label": "Code Analysis",
-        "status": "waiting"
-      },
-      {
-        "id": "dockerfile_generation",
-        "label": "Dockerfile Generation",
-        "status": "waiting"
-      },
-      {
-        "id": "env_vars",
-        "label": "Env Vars",
-        "status": "waiting"
-      },
-      {
-        "id": "security_scan",
-        "label": "Security Scan",
-        "status": "waiting"
-      },
-      {
-        "id": "container_build",
-        "label": "Container Build",
-        "status": "waiting"
-      },
-      {
-        "id": "cloud_deployment",
-        "label": "Cloud Deployment",
-        "status": "waiting"
-      }
-    ],
-    "error_message": null,
-    "request_count": 0,
-    "uptime_percentage": 100.0
-  },
-  "6f520a74-3ea5-4166-aee6-c290bae56801": {
-    "id": "6f520a74-3ea5-4166-aee6-c290bae56801",
-    "user_id": "Muhammadurasheed",
-    "service_name": "confirmit-nest-server",
-    "repo_url": "https://github.com/Muhammadurasheed/confirmit-nest-server.git",
-    "status": "pending",
-    "url": "",
-    "gcp_url": null,
-    "region": "us-central1",
-    "memory": "512Mi",
-    "cpu": "1",
-    "env_vars": {},
-    "created_at": "2026-02-03T03:07:55.805079",
-    "updated_at": "2026-02-03T03:07:55.805184",
-    "last_deployed": null,
-    "build_logs": [],
-    "stages": [
-      {
-        "id": "repo_access",
-        "label": "Repo Access",
-        "status": "waiting"
-      },
-      {
-        "id": "code_analysis",
-        "label": "Code Analysis",
-        "status": "waiting"
-      },
-      {
-        "id": "dockerfile_generation",
-        "label": "Dockerfile Generation",
-        "status": "waiting"
-      },
-      {
-        "id": "env_vars",
-        "label": "Env Vars",
-        "status": "waiting"
-      },
-      {
-        "id": "security_scan",
-        "label": "Security Scan",
-        "status": "waiting"
-      },
-      {
-        "id": "container_build",
-        "label": "Container Build",
-        "status": "waiting"
-      },
-      {
-        "id": "cloud_deployment",
-        "label": "Cloud Deployment",
-        "status": "waiting"
-      }
-    ],
-    "error_message": null,
-    "request_count": 0,
-    "uptime_percentage": 100.0
-  },
   "f34c4dbe-d74e-459e-bdbf-c2715c8bcb5f": {
     "id": "f34c4dbe-d74e-459e-bdbf-c2715c8bcb5f",
     "user_id": "Muhammadurasheed",
@@ -193,63 +79,8 @@
         "status": "waiting"
       }
     ],
-    "error_message": null,
-    "request_count": 0,
-    "uptime_percentage": 100.0
-  },
-  "3a9e67e1-674c-4807-8071-9fc3cbb79a25": {
-    "id": "3a9e67e1-674c-4807-8071-9fc3cbb79a25",
-    "user_id": "Muhammadurasheed",
-    "service_name": "netxus-web",
-    "repo_url": "https://github.com/Muhammadurasheed/NetXus-web.git",
-    "status": "pending",
-    "url": "",
-    "gcp_url": null,
-    "region": "us-central1",
-    "memory": "512Mi",
-    "cpu": "1",
-    "env_vars": {},
-    "created_at": "2026-02-03T06:42:18.757655",
-    "updated_at": "2026-02-03T06:42:18.757753",
-    "last_deployed": null,
-    "build_logs": [],
-    "stages": [
-      {
-        "id": "repo_access",
-        "label": "Repo Access",
-        "status": "waiting"
-      },
-      {
-        "id": "code_analysis",
-        "label": "Code Analysis",
-        "status": "waiting"
-      },
-      {
-        "id": "dockerfile_generation",
-        "label": "Dockerfile Generation",
-        "status": "waiting"
-      },
-      {
-        "id": "env_vars",
-        "label": "Env Vars",
-        "status": "waiting"
-      },
-      {
-        "id": "security_scan",
-        "label": "Security Scan",
-        "status": "waiting"
-      },
-      {
-        "id": "container_build",
-        "label": "Container Build",
-        "status": "waiting"
-      },
-      {
-        "id": "cloud_deployment",
-        "label": "Cloud Deployment",
-        "status": "waiting"
-      }
-    ],
+    "framework": null,
+    "language": null,
     "error_message": null,
     "request_count": 0,
     "uptime_percentage": 100.0
@@ -307,6 +138,185 @@
         "status": "waiting"
       }
     ],
+    "framework": null,
+    "language": null,
+    "error_message": null,
+    "request_count": 0,
+    "uptime_percentage": 100.0
+  },
+  "c8cb1a9e-2a46-4b41-ba1d-35dc6c51b090": {
+    "id": "c8cb1a9e-2a46-4b41-ba1d-35dc6c51b090",
+    "user_id": "Muhammadurasheed",
+    "service_name": "energram",
+    "repo_url": "https://github.com/Muhammadurasheed/energram.git",
+    "status": "live",
+    "url": "https://deploy-2-energram-n3vlci4vfq-uc.a.run.app",
+    "gcp_url": null,
+    "region": "us-central1",
+    "memory": "512Mi",
+    "cpu": "1",
+    "env_vars": {},
+    "created_at": "2026-02-03T13:16:44.130153",
+    "updated_at": "2026-02-03T13:22:25.660206",
+    "last_deployed": null,
+    "build_logs": [],
+    "stages": [
+      {
+        "id": "repo_access",
+        "label": "Repo Access",
+        "status": "waiting"
+      },
+      {
+        "id": "code_analysis",
+        "label": "Code Analysis",
+        "status": "waiting"
+      },
+      {
+        "id": "dockerfile_generation",
+        "label": "Dockerfile Generation",
+        "status": "waiting"
+      },
+      {
+        "id": "env_vars",
+        "label": "Env Vars",
+        "status": "waiting"
+      },
+      {
+        "id": "security_scan",
+        "label": "Security Scan",
+        "status": "waiting"
+      },
+      {
+        "id": "container_build",
+        "label": "Container Build",
+        "status": "waiting"
+      },
+      {
+        "id": "cloud_deployment",
+        "label": "Cloud Deployment",
+        "status": "waiting"
+      }
+    ],
+    "framework": null,
+    "language": null,
+    "error_message": null,
+    "request_count": 0,
+    "uptime_percentage": 100.0
+  },
+  "cfdb5532-eed1-464a-9a8e-0c3550868fe6": {
+    "id": "cfdb5532-eed1-464a-9a8e-0c3550868fe6",
+    "user_id": "Muhammadurasheed",
+    "service_name": "midas-touch",
+    "repo_url": "https://github.com/Muhammadurasheed/midas-touch.git",
+    "status": "live",
+    "url": "https://deploy-e-midas-touch-n3vlci4vfq-uc.a.run.app",
+    "gcp_url": null,
+    "region": "us-central1",
+    "memory": "512Mi",
+    "cpu": "1",
+    "env_vars": {},
+    "created_at": "2026-02-03T21:04:23.493410",
+    "updated_at": "2026-02-03T21:09:49.821837",
+    "last_deployed": null,
+    "build_logs": [],
+    "stages": [
+      {
+        "id": "repo_access",
+        "label": "Repo Access",
+        "status": "waiting"
+      },
+      {
+        "id": "code_analysis",
+        "label": "Code Analysis",
+        "status": "waiting"
+      },
+      {
+        "id": "dockerfile_generation",
+        "label": "Dockerfile Generation",
+        "status": "waiting"
+      },
+      {
+        "id": "env_vars",
+        "label": "Env Vars",
+        "status": "waiting"
+      },
+      {
+        "id": "security_scan",
+        "label": "Security Scan",
+        "status": "waiting"
+      },
+      {
+        "id": "container_build",
+        "label": "Container Build",
+        "status": "waiting"
+      },
+      {
+        "id": "cloud_deployment",
+        "label": "Cloud Deployment",
+        "status": "waiting"
+      }
+    ],
+    "framework": "react",
+    "language": "node",
+    "error_message": null,
+    "request_count": 0,
+    "uptime_percentage": 100.0
+  },
+  "aadc8481-b84d-4149-ad69-8dbb2dd744e9": {
+    "id": "aadc8481-b84d-4149-ad69-8dbb2dd744e9",
+    "user_id": "Muhammadurasheed",
+    "service_name": "boostiq",
+    "repo_url": "https://github.com/Muhammadurasheed/boostIQ.git",
+    "status": "live",
+    "url": "https://deploy-5-boostiq-n3vlci4vfq-uc.a.run.app",
+    "gcp_url": null,
+    "region": "us-central1",
+    "memory": "512Mi",
+    "cpu": "1",
+    "env_vars": {},
+    "created_at": "2026-02-03T22:06:01.440619",
+    "updated_at": "2026-02-03T22:11:47.151104",
+    "last_deployed": null,
+    "build_logs": [],
+    "stages": [
+      {
+        "id": "repo_access",
+        "label": "Repo Access",
+        "status": "waiting"
+      },
+      {
+        "id": "code_analysis",
+        "label": "Code Analysis",
+        "status": "waiting"
+      },
+      {
+        "id": "dockerfile_generation",
+        "label": "Dockerfile Generation",
+        "status": "waiting"
+      },
+      {
+        "id": "env_vars",
+        "label": "Env Vars",
+        "status": "waiting"
+      },
+      {
+        "id": "security_scan",
+        "label": "Security Scan",
+        "status": "waiting"
+      },
+      {
+        "id": "container_build",
+        "label": "Container Build",
+        "status": "waiting"
+      },
+      {
+        "id": "cloud_deployment",
+        "label": "Cloud Deployment",
+        "status": "waiting"
+      }
+    ],
+    "framework": null,
+    "language": null,
     "error_message": null,
     "request_count": 0,
     "uptime_percentage": 100.0

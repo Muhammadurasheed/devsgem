@@ -20,7 +20,16 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import ChatWidget from "@/components/ChatWidget";
 import { useState } from "react";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes (FAANG Standard: Cache heavily, push updates via Socket)
+      gcTime: 1000 * 60 * 30,    // 30 minutes
+      refetchOnWindowFocus: false, // Prevent "flicker" when user switches back to DevGem
+      retry: 1,
+    },
+  },
+});
 
 import { GitHubProvider } from "@/contexts/GitHubContext";
 

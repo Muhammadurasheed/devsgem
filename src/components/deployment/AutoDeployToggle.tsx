@@ -1,10 +1,4 @@
-/**
- * AutoDeployToggle - FAANG-Level CI/CD Control
- * Bismillahir Rahmanir Raheem
- * 
- * Provides a beautiful toggle for enabling/disabling auto-deploy on a deployment.
- * Shows real-time status of the smart polling system.
- */
+ 
 
 import { useState, useEffect } from 'react';
 import { Switch } from '@/components/ui/switch';

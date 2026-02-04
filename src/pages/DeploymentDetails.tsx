@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RuntimeLogs } from '@/components/deployment/RuntimeLogs';
+import { TerminalView } from '@/components/deployment/TerminalView';
 import { DeploymentPreview } from '@/components/deployment/DeploymentPreview';
 import { AutoDeployToggle } from '@/components/deployment/AutoDeployToggle';
 import { DomainManager } from '@/components/deployment/DomainManager';
@@ -13,28 +14,39 @@ import { ExternalLink, GitBranch, Clock, ArrowLeft, Terminal, Activity, CheckCir
 import { formatDistanceToNow } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { toast } from 'sonner';
+import { useDeployments } from '@/hooks/useDeployments';
+import { resolveLogo } from '@/lib/logos';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export default function DeploymentDetails() {
     const { deploymentId } = useParams();
     const navigate = useNavigate();
-    const [deployment, setDeployment] = useState<any>(null);
     const [activeTab, setActiveTab] = useState("overview");
+    const { deployments, isLoading, deleteDeployment } = useDeployments();
 
-    useEffect(() => {
-        const fetchDeployment = async () => {
-            try {
-                const res = await fetch(`http://localhost:8000/api/deployments/${deploymentId}`);
-                if (res.ok) setDeployment(await res.json());
-            } catch (error) {
-                console.error("Failed to fetch deployment", error);
-            }
-        };
-        fetchDeployment();
-    }, [deploymentId]);
+    // Instant lookup from cache (FAANG Strategy)
+    const deployment = deployments.find(d => d.id === deploymentId);
+
+    if (isLoading && !deployment) return (
+        <DashboardLayout>
+            <div className="p-8 text-center text-muted-foreground">Loading deployment details...</div>
+        </DashboardLayout>
+    );
 
     if (!deployment) return (
         <DashboardLayout>
-            <div className="p-8 text-center text-muted-foreground">Loading deployment details...</div>
+            <div className="p-8 text-center text-muted-foreground">Deployment not found.</div>
         </DashboardLayout>
     );
 
@@ -49,7 +61,7 @@ export default function DeploymentDetails() {
 
     return (
         <DashboardLayout>
-            <div className="flex-1 overflow-y-auto bg-background/50">
+            <div className="flex flex-col h-full bg-background/50">
                 {/* Header */}
                 <div className="border-b border-border/40 bg-background/95 backdrop-blur sticky top-0 z-10">
                     <div className="container max-w-7xl mx-auto py-4 px-6 md:px-8">
@@ -60,6 +72,14 @@ export default function DeploymentDetails() {
                                 </Button>
                                 <div>
                                     <h1 className="text-2xl font-bold tracking-tight flex items-center gap-3">
+                                        {resolveLogo(deployment) && (
+                                            <img
+                                                src={resolveLogo(deployment)!}
+                                                className="w-8 h-8 rounded-sm object-contain bg-white/5 p-1"
+                                                alt=""
+                                                onError={(e) => (e.currentTarget.style.display = 'none')}
+                                            />
+                                        )}
                                         {deployment.service_name}
                                         <Badge variant="outline" className={`${statusColor(deployment.status)} uppercase text-[10px] tracking-wider`}>
                                             {deployment.status}
@@ -201,28 +221,32 @@ export default function DeploymentDetails() {
                         </TabsContent>
 
                         <TabsContent value="logs" className="animate-in fade-in slide-in-from-bottom-4 duration-500 mt-0">
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[600px]">
-                                {/* Build Logs */}
-                                <Card className="h-full flex flex-col bg-[#0a0f14] border-white/5">
-                                    <CardHeader className="bg-white/5 py-3 px-4 border-b border-white/5">
-                                        <CardTitle className="text-sm font-mono flex items-center gap-2">
-                                            <Terminal className="w-4 h-4 text-blue-400" /> Build Logs
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <ScrollArea className="flex-1 p-4 font-mono text-xs text-muted-foreground">
-                                        {deployment.build_logs?.length ? (
-                                            deployment.build_logs.map((log: string, i: number) => (
-                                                <div key={i} className="mb-1 break-all hover:bg-white/5 px-1 rounded">{log}</div>
-                                            ))
-                                        ) : (
-                                            <div className="text-center py-20 opacity-50">No build logs available</div>
-                                        )}
-                                    </ScrollArea>
-                                </Card>
+                            <div className="flex flex-col gap-6 h-[75vh] min-h-[500px]">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 overflow-hidden">
+                                    {/* Build Logs - The High-Fidelity Record */}
+                                    <div className="flex flex-col h-full overflow-hidden">
+                                        <div className="flex items-center gap-2 mb-2 px-1">
+                                            <Terminal className="w-4 h-4 text-blue-400" />
+                                            <span className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Build Artifacts</span>
+                                        </div>
+                                        <TerminalView
+                                            logs={deployment.build_logs || []}
+                                            className="flex-1"
+                                        />
+                                    </div>
 
-                                {/* Runtime Logs Stream */}
-                                <div className="h-full">
-                                    <RuntimeLogs deploymentId={deploymentId!} serviceName={deployment.service_name} className="h-full" />
+                                    {/* Runtime Logs Stream - The Live Heartbeat */}
+                                    <div className="flex flex-col h-full overflow-hidden">
+                                        <div className="flex items-center gap-2 mb-2 px-1">
+                                            <Activity className="w-4 h-4 text-green-400" />
+                                            <span className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Runtime Console</span>
+                                        </div>
+                                        <RuntimeLogs
+                                            deploymentId={deploymentId!}
+                                            serviceName={deployment.service_name}
+                                            className="flex-1"
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </TabsContent>
@@ -236,9 +260,38 @@ export default function DeploymentDetails() {
                                     <CardDescription>Irreversible actions requiring confirmation.</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                    <Button variant="destructive">
-                                        Delete Deployment
-                                    </Button>
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                            <Button variant="destructive">
+                                                Delete Deployment
+                                            </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                    This will permanently delete <strong>{deployment.service_name}</strong> and all associated resources on Google Cloud. This action cannot be undone.
+                                                </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction
+                                                    onClick={async () => {
+                                                        try {
+                                                            await deleteDeployment(deploymentId!);
+                                                            navigate('/dashboard');
+                                                            toast.success("Deployment deleted successfully");
+                                                        } catch (err) {
+                                                            // Error handled by hook
+                                                        }
+                                                    }}
+                                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                                >
+                                                    Delete Project
+                                                </AlertDialogAction>
+                                            </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
                                 </CardContent>
                             </Card>
                         </TabsContent>

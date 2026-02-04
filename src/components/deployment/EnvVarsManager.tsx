@@ -1,11 +1,4 @@
-/**
- * EnvVarsManager - Environment Variables Management UI
- * 
- * A premium, Apple-level designed component for managing environment variables.
- * Features: Add, edit, delete, secure masking, and sync with cloud.
- * 
- * Part of Phase 3: Environment Variables Management
- */
+
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';

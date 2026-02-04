@@ -13,6 +13,17 @@ import asyncio
 import logging
 import sys
 
+# [SOVEREIGN BOOTSTRAPPING] 
+# Windows requires ProactorEventLoop for subprocess support (Playwright, GCloud CLI)
+# We enforce this at the highest level possible.
+if sys.platform == 'win32':
+    try:
+        from asyncio import WindowsProactorEventLoopPolicy
+        asyncio.set_event_loop_policy(WindowsProactorEventLoopPolicy())
+        print("[System] [SUCCESS] Enforced WindowsProactorEventLoopPolicy for subprocess support.")
+    except Exception as e:
+        print(f"[System] [WARNING] Failed to set ProactorEventLoopPolicy: {e}")
+
 # [FIXED] Force standard logging to stdout without stream reconfiguration
 logging.basicConfig(
     level=logging.INFO,
@@ -28,6 +39,7 @@ from contextlib import asynccontextmanager
 import hashlib
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request, Depends, Body, BackgroundTasks, Response
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -45,6 +57,7 @@ from agents.orchestrator import OrchestratorAgent
 from services.deployment_service import deployment_service
 from services.user_service import user_service
 from services.usage_service import usage_service
+from services.branding_service import branding_service
 from middleware.usage_tracker import UsageTrackingMiddleware
 from models import DeploymentStatus, PlanTier, User
 
@@ -1618,6 +1631,7 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                                 explicit_env_vars={},  # Empty dict for skip
                                 safe_send=safe_send_json,
                                 session_id=session_id,
+                                deployment_id=deployment_id, # [FAANG] Pass authoritative ID
                                 abort_event=session_abort_events.get(session_id)
                             )
                             
@@ -1627,26 +1641,26 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                                 'timestamp': datetime.now().isoformat()
                             })
 
-                            # [PERSISTENCE] FAANG-Level Save (Skip Path)
+                            # [PERSISTENCE] FAANG-Level Update (Skip Path)
+                            # Early registration in Orchestrator already created the record.
+                            # We just ensure the status is LIVE and the URL is set.
                             deploy_data = response.get('data', {})
                             if deploy_data and deploy_data.get('url'):
                                 try:
-                                    print(f"[WebSocket] 💾 Persisting deployment (Skip Env): {deploy_data.get('service_name')}")
-                                    dep_record = deployment_service.create_deployment(
-                                        user_id=user_id, # [FIX] Use real user_id
-                                        service_name=deploy_data.get('service_name', 'unknown'),
-                                        repo_url=deploy_data.get('repo_url', user_orchestrator.project_context.get('repo_url', '')),
-                                        region=deploy_data.get('region', 'us-central1'),
-                                        env_vars={}
-                                    )
-                                    deployment_service.update_deployment_status(
-                                        dep_record.id,
-                                        str(DeploymentStatus.LIVE),
-                                        gcp_url=deploy_data.get('url')
-                                    )
-                                    print(f"[WebSocket] ✅ Deployment persisted: {dep_record.id}")
+                                    print(f"[WebSocket] 💾 Finalizing deployment (Skip Env): {deploy_data.get('service_name')}")
+                                    # Use the ID from Orchestrator's active_deployment if possible
+                                    existing_id = user_orchestrator.active_deployment.get('deploymentId') if user_orchestrator.active_deployment else None
+                                    
+                                    if existing_id:
+                                        deployment_service.update_deployment_status(
+                                            existing_id,
+                                            str(DeploymentStatus.LIVE),
+                                            gcp_url=deploy_data.get('url')
+                                        )
+                                        await deployment_service.update_url(existing_id, deploy_data.get('url'))
+                                        print(f"[WebSocket] ✅ Deployment final state saved: {existing_id}")
                                 except Exception as p_err:
-                                    print(f"[WebSocket] ❌ Persistence failed: {p_err}")
+                                    print(f"[WebSocket] ⚠️ Status update failed (non-fatal): {p_err}")
                             
                             await session_store.save_session(session_id, user_orchestrator.get_state())
                             
@@ -1724,26 +1738,24 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                                 abort_event=session_abort_events.get(session_id)
                             )
                             
-                            # 5. Persist
+                            # [PERSISTENCE] FAANG-Level Update (Sync Path)
+                            # Orchestrator handles early registration; we just finalize.
                             deploy_data = response.get('data', {})
                             if deploy_data and deploy_data.get('url'):
                                 try:
-                                    print(f"[WebSocket] 💾 Persisting deployment (Sync): {deploy_data.get('service_name')}")
-                                    dep_record = deployment_service.create_deployment(
-                                        user_id=user_id, # [FIX] Use real user_id
-                                        service_name=deploy_data.get('service_name', 'unknown'),
-                                        repo_url=deploy_data.get('repo_url', repo_url),
-                                        region=deploy_data.get('region', 'us-central1'),
-                                        env_vars=user_orchestrator.project_context.get('env_vars', {})
-                                    )
-                                    deployment_service.update_deployment_status(
-                                        dep_record.id,
-                                        str(DeploymentStatus.LIVE),
-                                        gcp_url=deploy_data.get('url')
-                                    )
-                                    print(f"[WebSocket] ✅ Deployment persisted: {dep_record.id}")
+                                    print(f"[WebSocket] 💾 Finalizing deployment (Sync): {deploy_data.get('service_name')}")
+                                    existing_id = user_orchestrator.active_deployment.get('deploymentId') if user_orchestrator.active_deployment else None
+                                    
+                                    if existing_id:
+                                        deployment_service.update_deployment_status(
+                                            existing_id,
+                                            str(DeploymentStatus.LIVE),
+                                            gcp_url=deploy_data.get('url')
+                                        )
+                                        await deployment_service.update_url(existing_id, deploy_data.get('url'))
+                                        print(f"[WebSocket] ✅ Deployment final state saved: {existing_id}")
                                 except Exception as p_err:
-                                    print(f"[WebSocket] ❌ Persistence failed: {p_err}")
+                                    print(f"[WebSocket] ⚠️ Status update failed (Sync): {p_err}")
 
                             await safe_send_json(session_id, {
                                 'type': 'message',
@@ -1830,41 +1842,10 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                         )
                         
                         # [SUCCESS] PERSISTENCE HOOK: Save successful deployment
+                        # Consolidated into Orchestrator Early Registration.
+                        # We only need to check if it's Live here.
                         if response.get('type') == 'success' and 'data' in response:
-                            try:
-                                deploy_data = response['data']
-                                print(f"[WebSocket] 💾 Persisting successful deployment: {deploy_data.get('service_name')}")
-                                
-                                # 1. Create Deployment Record
-                                deployment = deployment_service.create_deployment(
-                                    user_id=user_id, # From session
-                                    service_name=deploy_data.get('service_name', 'unknown-service'),
-                                    repo_url=deploy_data.get('repo_url', 'unknown-repo'),
-                                    region=deploy_data.get('region', 'us-central1'),
-                                    env_vars=deploy_data.get('env_vars', {})
-                                )
-                                
-                                # 2. Mark as LIVE immediately
-                                deployment_service.update_deployment_status(
-                                    deployment_id=deployment.id,
-                                    status=DeploymentStatus.LIVE,
-                                    gcp_url=deploy_data.get('url')
-                                )
-                                
-                                # 3. Log Success Event
-                                deployment_service._log_event(
-                                    deployment.id,
-                                    "deployment_success",
-                                    "Deployment completed successfully via Gemini Brain",
-                                    {"build_time": "auto", "deploy_id": deploy_data.get('deployment_id')}
-                                )
-                                
-                                # 4. Track Usage
-                                usage_service.track_deployment(user_id)
-                                
-                            except Exception as persist_error:
-                                print(f"[WebSocket] ⚠️ Failed to persist deployment: {persist_error}")
-                                traceback.print_exc()
+                            print(f"[WebSocket] 💾 Deployment lifecycle finished for {deployment_id}")
 
                         await safe_send_json(session_id, {
                             'type': 'message',
@@ -2124,7 +2105,21 @@ async def update_deployment_status(deployment_id: str, update: DeploymentStatusU
 
 @app.delete("/api/deployments/{deployment_id}")
 async def delete_deployment(deployment_id: str):
-    """Delete deployment"""
+    """
+    [FAANG] Nuclear Purge Protocol
+    Deletes local records and initiates remote Cloud Run service removal.
+    """
+    deployment = deployment_service.get_deployment(deployment_id)
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+        
+    # 1. Strategic Remote Cleanup (Async)
+    # We trigger this first to ensure the intent is captured, but don't block the UI
+    if deployment.service_name:
+        print(f"[API] 🗑️ Nuclear Cleanup: Initiating remote removal for {deployment.service_name}")
+        asyncio.create_task(orchestrator.gcloud_service.delete_service(deployment.service_name))
+        
+    # 2. Local Record Purge
     success = deployment_service.delete_deployment(deployment_id)
     if not success:
         raise HTTPException(status_code=404, detail="Deployment not found")
@@ -2253,36 +2248,7 @@ async def add_deployment_log(deployment_id: str, log_line: str):
     return {"message": "Log added"}
 
 
-@app.get("/api/deployments/{deployment_id}/preview")
-async def get_deployment_preview(deployment_id: str):
-    """[FAANG] Get the latest preview screenshot for a deployment"""
-    from services.preview_service import preview_service
-    from fastapi.responses import FileResponse
-    
-    preview_path = await preview_service.get_latest_preview(deployment_id)
-    
-    if not preview_path:
-        raise HTTPException(status_code=404, detail="No preview available")
-        
-    return FileResponse(preview_path, media_type="image/png")
-
-
-@app.post("/api/deployments/{deployment_id}/preview/regenerate")
-async def regenerate_deployment_preview(deployment_id: str, background_tasks: BackgroundTasks):
-    """[FAANG] Trigger regeneration of the preview screenshot"""
-    from services.preview_service import preview_service
-    
-    deployment = deployment_service.get_deployment(deployment_id)
-    if not deployment:
-        raise HTTPException(status_code=404, detail="Deployment not found")
-        
-    if not deployment.url:
-        raise HTTPException(status_code=400, detail="Deployment has no URL")
-    
-    # Schedule preview generation in background
-    background_tasks.add_task(preview_service.generate_preview, deployment.url, deployment_id)
-    
-    return {"message": "Preview regeneration started", "deployment_id": deployment_id}
+# Duplicate preview endpoints removed (Hardened version moved to lines 2460+)
 
 
 @app.get("/api/deployments/{deployment_id}/runtime-logs")
@@ -2461,26 +2427,74 @@ async def remove_deployment_domain(deployment_id: str, domain: str):
 from services.preview_service import preview_service
 
 @app.get("/api/deployments/{deployment_id}/preview")
-async def get_deployment_preview(deployment_id: str):
-    """Generate or retrieve a preview screenshot"""
+async def get_deployment_preview(deployment_id: str, background_tasks: BackgroundTasks):
+    """[FAANG] Get or generate a preview screenshot with caching"""
     deployment = deployment_service.get_deployment(deployment_id)
     if not deployment or not deployment.url:
          raise HTTPException(status_code=404, detail="Preview unavailable")
     
+    # 1. Check for cached preview
+    preview_path = await preview_service.get_latest_preview(deployment_id)
+    if preview_path:
+        return FileResponse(preview_path, media_type="image/png")
+        
+    # 2. Block and generate if missing (UX: First time users wait ~s)
     try:
-        # Generate on the fly (FAANG approach: Cache this in Redis/GCS in prod)
-        screenshot = await preview_service.capture_screenshot(deployment.url)
-        return Response(content=screenshot, media_type="image/jpeg")
+        preview_path = await preview_service.generate_preview(deployment.url, deployment_id)
+        if preview_path:
+            return FileResponse(preview_path, media_type="image/png")
+        
+        # [FAANG] Hybrid Fallback: Remote Snapshot API
+        # If local Playwright fails (Windows/Incompatible), redirect to a professional screenshot service.
+        remote_preview = f"https://api.microlink.io?url={deployment.url}&screenshot=true&embed=screenshot.url"
+        return RedirectResponse(url=remote_preview)
+        
     except Exception as e:
         print(f"Preview generation failed: {e}")
-        raise HTTPException(status_code=500, detail="Preview generation failed")
+        # Final Fallback to Remote API even on exception
+        remote_preview = f"https://api.microlink.io?url={deployment.url}&screenshot=true&embed=screenshot.url"
+        return RedirectResponse(url=remote_preview)
+
+# ============================================================================
+# BRANDING & ASSET ENGINE (FAANG-Level)
+# ============================================================================
+
+@app.get("/api/branding/favicon")
+async def get_branding_favicon(url: str, response: Response):
+    """[FAANG] Extract high-fidelity favicon URL for any target"""
+    icon_url = await branding_service.get_favicon(url)
+    if not icon_url:
+        raise HTTPException(status_code=404, detail="Favicon not found")
+    
+    # [FAANG] Persistent Caching Headers
+    response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=3600"
+    return {"url": icon_url}
+
+@app.get("/api/branding/proxy")
+async def proxy_branding_favicon(url: str, response: Response):
+    """[FAANG] Proxy favicon bytes to bypass CORS restrictions with aggressive caching"""
+    icon_url = await branding_service.get_favicon(url)
+    if not icon_url:
+        raise HTTPException(status_code=404)
+    
+    content = await branding_service.proxy_icon(icon_url)
+    if not content:
+        # Fallback to a default globe if all else fails
+        return RedirectResponse(url="https://icons.duckduckgo.com/ip3/devgem.ai.ico")
+    
+    # [FAANG] Sharp Caching logic - 24 hours of client-side persistence
+    response.headers["Cache-Control"] = "public, max-age=86400, immutable"
+    return Response(content=content, media_type="image/x-icon")
 
 @app.post("/api/deployments/{deployment_id}/preview/regenerate")
-async def regenerate_deployment_preview(deployment_id: str):
-    """Force regenerate preview"""
-    # In this simple MVP, GET already generates fresh. 
-    # But this endpoint allows explicit control for UI button.
-    return await get_deployment_preview(deployment_id)
+async def regenerate_deployment_preview(deployment_id: str, background_tasks: BackgroundTasks):
+    """[FAANG] Force regenerate preview in background"""
+    deployment = deployment_service.get_deployment(deployment_id)
+    if not deployment or not deployment.url:
+         raise HTTPException(status_code=404, detail="Deployment has no URL")
+    
+    background_tasks.add_task(preview_service.generate_preview, deployment.url, deployment_id)
+    return {"message": "Preview regeneration started", "deployment_id": deployment_id}
 
 
 # ============================================================================

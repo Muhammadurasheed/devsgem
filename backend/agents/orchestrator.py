@@ -578,6 +578,7 @@ class OrchestratorAgent:
         explicit_env_vars: Optional[Dict[str, Any]] = None,
         safe_send: Optional[Callable] = None,
         session_id: str = None,
+        deployment_id: Optional[str] = None, # [FAANG] Pass-through authoritative ID
         abort_event: Optional[asyncio.Event] = None # [FAANG] Emergency Abort Control
     ) -> Dict[str, Any]:
         """
@@ -658,7 +659,8 @@ class OrchestratorAgent:
             service_name=service_name,
             repo_url=repo_url or "local-upload",
             region=self.gcloud_service.region if self.gcloud_service else 'us-central1',
-            env_vars=explicit_env_vars
+            env_vars=explicit_env_vars,
+            deployment_id=deployment_id # [FAANG] Use authoritative ID
         )
         deployment_id = deployment_record.id
         self.active_deployment = deployment_record.to_dict() # Cache in memory
@@ -1577,6 +1579,21 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     }
                 )
             
+            # [FAANG] PERSISTENCE: Save metadata for UI consumption (Iconography Engine)
+            self.project_context['framework'] = analysis_data['framework']
+            self.project_context['language'] = analysis_data['language']
+            self.project_context['analysis_results'] = analysis_data
+            
+            # If we are resuming a deployment, update its metadata now
+            last_dep_id = self.project_context.get('last_deployment_id')
+            if last_dep_id:
+                from services.deployment_service import deployment_service
+                await deployment_service.update_framework_info(
+                    last_dep_id, 
+                    analysis_data['framework'], 
+                    analysis_data['language']
+                )
+
             await self._send_progress_message(f"[SUCCESS] Analysis complete: {analysis_data['framework']} detected")
             await asyncio.sleep(0)  # [SUCCESS] Force immediate delivery
             # [SUCCESS] FAANG-LEVEL: Generate service_name from repo_url for UI display
@@ -2318,6 +2335,25 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 'startTime': datetime.now().isoformat(),
                 'serviceName': service_name
             }
+
+            # [FAANG] EARLY REGISTRATION: Persist the record immediately to prevent dashboard "stutter"
+            # This eliminates the duplication issue because the record exists BEFORE the flow ends.
+            try:
+                # We use a non-blocking background task to ensure UI performance is prioritized
+                from services.deployment_service import deployment_service
+                asyncio.create_task(deployment_service.create_deployment(
+                    service_name=service_name,
+                    repo_url=self.project_context.get('repo_url', ''),
+                    user_id=self.user_id,
+                    framework=self.project_context.get('framework'),
+                    language=self.project_context.get('language'),
+                    deployment_id=deployment_id
+                ))
+                # Note: We don't wait for it here, but we pass the deployment_id to the service if we want it to match perfectly
+                # Actually, DeploymentService generates its own UUID. We should use ours for consistency.
+                print(f"[Orchestrator] 🚀 Early registration requested for {service_name}")
+            except Exception as early_err:
+                print(f"[Orchestrator] [WARNING] Early registration failed: {early_err}")
         
         # [SUCCESS] FIX: Track whether this is a fresh deployment vs a resumed one
         # Fresh deployment = new deployment_id was generated above
@@ -2356,14 +2392,27 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             try:
                 # 2. Update In-Memory Orchestrator State for UI Sync
                 if data.get('type') == 'deployment_progress' or data.get('stage'):
+                    stage_id = data.get('stage', 'cloud_deployment')
+                    logs = data.get('details') or []
+                    
                     self._update_deployment_stage(
-                        stage_id=data.get('stage', 'cloud_deployment'),
+                        stage_id=stage_id,
                         label=data.get('stage', 'Deployment').replace('_', ' ').title(),
                         status=data.get('status', 'in-progress'),
                         progress=data.get('progress', 50),
                         message=data.get('message'),
-                        logs=data.get('details')
+                        logs=logs
                     )
+
+                    # [PILLAR 1] BRIDGE THE GAP: Persist logs to the main deployment record
+                    # This ensures logs are visible in the Logs page even after refresh
+                    if logs and deployment_id:
+                        try:
+                            from services.deployment_service import deployment_service
+                            for log_line in logs:
+                                deployment_service.add_build_log(deployment_id, log_line)
+                        except Exception as log_err:
+                            print(f"[Orchestrator] [WARNING] Log bridging failed: {log_err}")
 
                 # 3. Forward to original UI callback
                 if original_progress_callback:
@@ -2767,6 +2816,10 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 
                 if data.get('logs'):
                     await tracker.emit_build_logs(data['logs'])
+                    # [PILLAR 1] Persistent Ledger: Append to build history
+                    if deployment_id:
+                        for log_line in data['logs']:
+                            deployment_service.add_build_log(deployment_id, log_line)
                     await asyncio.sleep(0)  # [SUCCESS] Force flush
                 # [SUCCESS] CRITICAL: Also send direct progress messages
                 if data.get('message'):
@@ -2778,8 +2831,13 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                             status=data.get('status', 'in-progress'), # [FIX] Dynamic status
                             progress=data.get('progress', self.active_deployment.get('overallProgress', 0)),
                             message=data['message'],
-                            logs=data.get('logs')
+                            logs=data.get('details') or data.get('logs') # Favor detailed lists
                         )
+                    
+                    # [PILLAR 1] Persistent Ledger: Append detailed lines if present
+                    if deployment_id and data.get('details'):
+                        for log_line in data['details']:
+                            deployment_service.add_build_log(deployment_id, f"[INFO] {log_line}")
                     
                     await self._send_progress_message(data['message'])
                     
@@ -3022,10 +3080,33 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             mem_limit = analysis.get('memory_limit', '512Mi')
             cpu_limit = analysis.get('cpu_limit', '1')
             
-            # [FAANG] Handle port dict format: {dev_port, deploy_port} or legacy int
+            # [FAANG] Port Logic
             port_data = analysis.get('port', 8080)
             container_port = port_data.get('deploy_port', 8080) if isinstance(port_data, dict) else port_data
             
+            # [FAANG] VERCEL-STYLE SNAPSHOT HOOK
+            # This runs in parallel as soon as the URL is public
+            async def snapshot_ready_hook(url: str):
+                print(f"[Orchestrator] URL READY for Snapshot: {url}")
+                try:
+                    # 1. Trigger Playwright Synthesis (Background)
+                    await preview_service.generate_preview(url, deployment_id)
+                    
+                    # 2. Notify Frontend via WebSocket for "Magic Reveal"
+                    if progress_notifier:
+                        await progress_notifier.send_message(
+                            'snapshot_ready',
+                            {
+                                'deploymentId': deployment_id,
+                                'url': url,
+                                'previewUrl': f"/api/deployments/{deployment_id}/preview",
+                                'timestamp': datetime.now().isoformat()
+                            }
+                        )
+                    print(f"[Orchestrator] Snapshot Signal Emitted for {deployment_id}")
+                except Exception as snap_err:
+                    print(f"[Orchestrator] Parallel Snapshot Hook failed: {snap_err}")
+
             deploy_result = await self.gcloud_service.deploy_to_cloudrun(
                 build_result['image_tag'],
                 service_name,
@@ -3036,7 +3117,8 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 memory_limit=mem_limit,
                 cpu_limit=cpu_limit,
                 abort_event=abort_event, # [FAANG]
-                container_port=container_port
+                container_port=container_port,
+                on_url_ready=snapshot_ready_hook # [MAGIC] Trigger capture early
             )
             
             deploy_duration = time.time() - deploy_start
@@ -3224,6 +3306,14 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 self.active_deployment['overallProgress'] = 100
                 if self.save_callback:
                     asyncio.create_task(self.save_callback())
+            
+            # [FAANG] Magic Preview: Trigger background screenshot generation
+            # This makes the UI feel 'magic' as the preview appears passively
+            try:
+                from services.preview_service import preview_service
+                asyncio.create_task(preview_service.generate_preview(deploy_result['url'], deployment_id))
+            except Exception as pe:
+                print(f"[Orchestrator] Magic Preview trigger failed: {pe}")
             
             # Get cost estimation
             estimated_cost = self.optimization.estimate_cost(optimal_config, 100000)

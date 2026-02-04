@@ -150,6 +150,16 @@ class APIClient {
     });
   }
 
+  async getMetrics(deploymentId: string, minutes: number = 60) {
+    return this.request<{
+      cpu: { timestamp: string; value: number }[];
+      memory: { timestamp: string; value: number }[];
+      requests: { timestamp: string; value: number }[];
+    }>(`/api/deployments/${deploymentId}/metrics?minutes=${minutes}`, {
+      method: 'GET',
+    });
+  }
+
   // ========================================================================
   // Usage Operations
   // ========================================================================

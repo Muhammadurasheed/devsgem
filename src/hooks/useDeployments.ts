@@ -1,9 +1,9 @@
 /**
  * Deployments Hook
- * Manages deployment data with backend integration
+ * [FAANG-LEVEL] Manages deployment data with TanStack Query for high performance
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, APIError } from '@/lib/api/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
@@ -27,87 +27,75 @@ export interface Deployment {
   error_message?: string;
   request_count: number;
   uptime_percentage: number;
+  framework?: string;
+  language?: string;
 }
 
 export const useDeployments = () => {
   const { user } = useAuth();
-  const [deployments, setDeployments] = useState<Deployment[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  // Fetch deployments
-  const fetchDeployments = useCallback(async () => {
-    if (!user) return;
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
+  // 1. Fetch deployments Query
+  const {
+    data: deployments = [],
+    isLoading,
+    error: queryError,
+    refetch: refresh
+  } = useQuery({
+    queryKey: ['deployments', user?.id],
+    queryFn: async () => {
+      if (!user) return [];
       const response: any = await apiClient.listDeployments(user.id);
-      setDeployments(response.deployments || []);
-    } catch (err) {
-      const message = err instanceof APIError ? err.message : 'Failed to load deployments';
-      setError(message);
-      console.error('Error fetching deployments:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user]);
+      return response.deployments || [];
+    },
+    enabled: !!user,
+  });
 
-  // Load on mount
-  useEffect(() => {
-    fetchDeployments();
-  }, [fetchDeployments]);
-
-  // Create deployment
-  const createDeployment = async (data: {
-    service_name: string;
-    repo_url: string;
-    region?: string;
-    env_vars?: Record<string, string>;
-  }) => {
-    if (!user) {
-      toast.error('You must be logged in to deploy');
-      return null;
-    }
-
-    setIsLoading(true);
-    try {
-      const response = await apiClient.createDeployment({
+  // 2. Create Mutation
+  const createMutation = useMutation({
+    mutationFn: async (data: {
+      service_name: string;
+      repo_url: string;
+      region?: string;
+      env_vars?: Record<string, string>;
+    }) => {
+      if (!user) throw new Error('You must be logged in to deploy');
+      return await apiClient.createDeployment({
         user_id: user.id,
         ...data,
       });
-
-      toast.success('Deployment created!');
-      await fetchDeployments();
-      return response;
-    } catch (err) {
+    },
+    onSuccess: () => {
+      toast.success('Deployment initiated!');
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    },
+    onError: (err) => {
       const message = err instanceof APIError ? err.message : 'Failed to create deployment';
       toast.error(message);
-      throw err;
-    } finally {
-      setIsLoading(false);
     }
-  };
+  });
 
-  // Delete deployment
-  const deleteDeployment = async (deploymentId: string) => {
-    setIsLoading(true);
-    try {
-      await apiClient.deleteDeployment(deploymentId);
+  // 3. Delete Mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (deploymentId: string) => {
+      return await apiClient.deleteDeployment(deploymentId);
+    },
+    onSuccess: () => {
       toast.success('Deployment deleted');
-      await fetchDeployments();
-    } catch (err) {
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    },
+    onError: (err) => {
       const message = err instanceof APIError ? err.message : 'Failed to delete deployment';
       toast.error(message);
-      throw err;
-    } finally {
-      setIsLoading(false);
     }
-  };
+  });
 
-  // Get single deployment
+  // Helper for single deployment (can also be a query)
   const getDeployment = async (deploymentId: string) => {
+    // Check cache first for instant UX
+    const cached = deployments.find(d => d.id === deploymentId);
+    if (cached) return cached;
+
     try {
       return await apiClient.getDeployment(deploymentId);
     } catch (err) {
@@ -116,16 +104,15 @@ export const useDeployments = () => {
     }
   };
 
-  // Refresh deployments
-  const refresh = fetchDeployments;
-
   return {
     deployments,
     isLoading,
-    error,
-    createDeployment,
-    deleteDeployment,
+    error: queryError ? (queryError as any).message : null,
+    createDeployment: createMutation.mutateAsync,
+    deleteDeployment: deleteMutation.mutateAsync,
     getDeployment,
     refresh,
+    isCreating: createMutation.isPending,
+    isDeleting: deleteMutation.isPending,
   };
 };

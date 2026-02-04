@@ -26,8 +26,20 @@ import {
   Key,
   LayoutDashboard
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from 'sonner';
-import { useDeployments } from '@/hooks/useDeployments';
+import { useDeployments, Deployment } from '@/hooks/useDeployments';
+import { BrandingIcon } from '@/components/BrandingIcon';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -52,20 +64,31 @@ const Dashboard = () => {
   }, [onMessage, refresh]);
 
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'live': return 'bg-green-500';
-      case 'deploying': return 'bg-yellow-500 animate-pulse';
-      case 'error': return 'bg-red-500';
+    switch (status.toLowerCase()) {
+      case 'live': return 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.3)]';
+      case 'deploying':
+      case 'building':
+      case 'starting':
+      case 'pending': return 'bg-yellow-500 animate-pulse shadow-[0_0_10px_rgba(234,179,8,0.3)]';
+      case 'error':
+      case 'failed': return 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.3)]';
+      case 'stopped': return 'bg-zinc-500';
       default: return 'bg-gray-500';
     }
   };
 
   const getStatusLabel = (status: string) => {
-    switch (status) {
+    const s = status.toLowerCase();
+    switch (s) {
       case 'live': return 'Live';
       case 'deploying': return 'Deploying';
-      case 'error': return 'Error';
-      default: return 'Unknown';
+      case 'building': return 'Building';
+      case 'starting':
+      case 'pending': return 'Initializing...';
+      case 'error':
+      case 'failed': return 'Failed';
+      case 'stopped': return 'Stopped';
+      default: return status.charAt(0).toUpperCase() + status.slice(1) || 'Unknown';
     }
   };
 
@@ -112,6 +135,7 @@ const Dashboard = () => {
       }
     }
   };
+
 
   const formatDate = (dateString: string) => {
     try {
@@ -248,15 +272,20 @@ const Dashboard = () => {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <div className={`w-3 h-3 rounded-full ${getStatusColor(deployment.status)}`} />
-                        <CardTitle
-                          className="text-xl cursor-pointer hover:text-primary transition-colors"
-                          onClick={() => navigate(`/dashboard/deployments/${deployment.id}`)}
-                        >
-                          {deployment.service_name}
-                        </CardTitle>
+                        <div className="flex items-center gap-3">
+                          <BrandingIcon
+                            deployment={deployment}
+                            className="w-8 h-8 rounded-lg shadow-xl shadow-primary/10 border border-white/10 p-0.5 bg-zinc-900"
+                          />
+                          <CardTitle
+                            className="text-xl cursor-pointer hover:text-primary transition-colors font-bold tracking-tight"
+                            onClick={() => navigate(`/dashboard/deployments/${deployment.id}`)}
+                          >
+                            {deployment.service_name}
+                          </CardTitle>
+                        </div>
                       </div>
-                      <CardDescription className="flex items-center gap-2">
-                        <Globe className="w-4 h-4" />
+                      <CardDescription className="flex items-center gap-2 ml-11">
                         <a
                           href={deployment.url}
                           target="_blank"
@@ -319,14 +348,36 @@ const Dashboard = () => {
                       >
                         <Settings className="w-4 h-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(deployment.id, deployment.service_name)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            title="Delete Project"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will permanently delete <strong>{deployment.service_name}</strong> and all associated resources on Google Cloud. This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => deleteDeployment(deployment.id)}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Delete Project
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+
                       <Button
                         variant="ghost"
                         size="sm"

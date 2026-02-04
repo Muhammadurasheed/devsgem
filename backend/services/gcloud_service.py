@@ -899,6 +899,10 @@ class GCloudService:
             self.metrics['build_times'].append(build_duration)
 
             if build_result.status == cloudbuild_v1.Build.Status.SUCCESS:
+                # [SOVEREIGN FIX] Fetch full build logs even on success
+                self.logger.info(f"[GCloudService] Build {build_id} succeeded. Fetching logs...")
+                log_excerpt = await self._fetch_build_logs(build_result, build_id)
+                
                 # [FAANG] Explicitly mark container_build as success immediately
                 if progress_callback:
                     await progress_callback({
@@ -906,14 +910,16 @@ class GCloudService:
                         'status': 'success',
                         'progress': 100,
                         'message': 'Container built successfully',
-                        'details': [f'Build ID: {build_id}', f'Duration: {build_duration:.1f}s']
+                        'details': log_excerpt.split('\n')[-200:] if log_excerpt else [f'Build ID: {build_id}', f'Duration: {build_duration:.1f}s']
                     })
             
             if build_result.status == cloudbuild_v1.Build.Status.SUCCESS:
                 self.metrics['builds']['success'] += 1
                 return {
                     'success': True,
-                    'image_tag': image_tag
+                    'image_tag': image_tag,
+                    'build_id': build_id,
+                    'log_excerpt': log_excerpt
                 }
             
             self.metrics['builds']['failed'] += 1
@@ -936,51 +942,8 @@ class GCloudService:
                         error_details.append(failed_step_log)
             
             #  CRITICAL: Fetch actual log content from GCS
-            log_excerpt = ""
-            gcs_log_url = None
-            
-            if hasattr(build_result, 'logs_bucket') and build_result.logs_bucket:
-                bucket_name = build_result.logs_bucket
-                if bucket_name.startswith('gs://'):
-                    bucket_name = bucket_name[5:]
-                gcs_log_url = f"gs://{bucket_name}/log-{build_id}.txt"
-            
-            if gcs_log_url:
-                self.logger.info(f"[DEBUG] Construction GCS log URL: {gcs_log_url}")
-                try:
-                    #  ASYNC FIX: Run blocking GCS operations in thread
-                    def fetch_gcs_logs():
-                        from google.cloud import storage
-                        storage_client = storage.Client(project=self.project_id)
-                        
-                        # Parse GCS URL
-                        if gcs_log_url.startswith('gs://'):
-                            parts = gcs_log_url[5:].split('/', 1)
-                            if len(parts) == 2:
-                                bucket_name, blob_name = parts
-                                bucket = storage_client.bucket(bucket_name)
-                                blob = bucket.blob(blob_name)
-                                
-                                if blob.exists():
-                                    content = blob.download_as_text()
-                                    lines = content.strip().split('\n')
-                                    # Get last 200 lines
-                                    last_lines = lines[-200:] if len(lines) > 200 else lines
-                                    return '\n'.join(last_lines)
-                        return ""
-
-                    log_excerpt = await asyncio.to_thread(fetch_gcs_logs)
-                    
-                    if log_excerpt:
-                        self.logger.info(f"[DEBUG] Fetched log excerpt ({len(log_excerpt)} chars)")
-                        # Print context to terminal
-                        for line in log_excerpt.split('\n'):
-                             self.logger.info(f"[BUILD LOG] {line}")
-                             
-                except Exception as log_err:
-                    self.logger.warning(f"Could not fetch build logs from {gcs_log_url}: {log_err}")
-            
-            logs_url = build_result.log_url if hasattr(build_result, 'log_url') else gcs_log_url
+            log_excerpt = await self._fetch_build_logs(build_result, build_id)
+            logs_url = build_result.log_url if hasattr(build_result, 'log_url') else None
             
             #  Check for common failure patterns in logs
             build_status_name = build_result.status.name if hasattr(build_result.status, 'name') else str(build_result.status)
@@ -1064,6 +1027,60 @@ class GCloudService:
     # ============================================================================
     # SECRET MANAGER INTEGRATION (FAANG-Level Security)
     # ============================================================================
+
+
+    async def _fetch_build_logs(self, build_result, build_id: str) -> str:
+        """
+        [SOVEREIGN] Robust GCS Build Log Fetcher
+        Fetches build logs from GCS with exponential retry and thread safety.
+        """
+        log_excerpt = ""
+        gcs_log_url = None
+        
+        if hasattr(build_result, 'logs_bucket') and build_result.logs_bucket:
+            bucket_name = build_result.logs_bucket
+            if bucket_name.startswith('gs://'):
+                bucket_name = bucket_name[5:]
+            gcs_log_url = f"gs://{bucket_name}/log-{build_id}.txt"
+        
+        if not gcs_log_url:
+            return ""
+
+        try:
+            self.logger.info(f"[GCloudService] 🔍 Fetching build logs from: {gcs_log_url}")
+            
+            def fetch_gcs_raw():
+                from google.cloud import storage
+                storage_client = storage.Client(project=self.project_id)
+                
+                parts = gcs_log_url[5:].split('/', 1)
+                if len(parts) == 2:
+                    bucket_name, blob_name = parts
+                    bucket = storage_client.bucket(bucket_name)
+                    blob = bucket.blob(blob_name)
+                    
+                    if blob.exists():
+                        content = blob.download_as_text()
+                        lines = content.strip().split('\n')
+                        # [FAANG] Limit to last 1000 lines for high-fidelity debugging
+                        # but don't overwhelm the frontend
+                        last_lines = lines[-500:] if len(lines) > 500 else lines
+                        return '\n'.join(last_lines)
+                return ""
+
+            log_excerpt = await asyncio.to_thread(fetch_gcs_raw)
+            
+            if log_excerpt:
+                self.logger.info(f"[GCloudService] ✅ Successfully fetched {len(log_excerpt.split('\n'))} log lines.")
+                # Log a few lines to terminal for visibility
+                tail_lines = log_excerpt.split('\n')[-5:]
+                for line in tail_lines:
+                    self.logger.info(f"[BUILD-TAIL] {line}")
+            
+            return log_excerpt
+        except Exception as e:
+            self.logger.warning(f"[GCloudService] ⚠️ Failed to fetch build logs from {gcs_log_url}: {e}")
+            return ""
 
     async def create_or_update_secret(self, secret_id: str, payload: str) -> bool:
         """
@@ -1161,7 +1178,8 @@ class GCloudService:
         memory_limit: str = '512Mi',
         cpu_limit: str = '1',
         abort_event: Optional[asyncio.Event] = None,  # [FAANG]
-        container_port: Optional[int] = None
+        container_port: Optional[int] = None,
+        on_url_ready: Optional[Callable] = None # [FAANG] Snapshot reveal hook
     ) -> Dict:
         """
         Deploy image to Cloud Run using API (no CLI required!)
@@ -1546,6 +1564,18 @@ class GCloudService:
                                     'message': f'Waiting for public access... ({(iam_attempt + 1) * 5}s)'
                                 })
                     
+                    
+                    # [FAANG] Parallel Snapshot Trigger
+                    # Trigger capture immediately as URL becomes public
+                    if on_url_ready:
+                        try:
+                            if asyncio.iscoroutinefunction(on_url_ready):
+                                asyncio.create_task(on_url_ready(service_url))
+                            else:
+                                on_url_ready(service_url)
+                        except Exception as wrap_err:
+                            self.logger.warning(f"Failed to trigger on_url_ready handle: {wrap_err}")
+
                     if not iam_propagated:
                         self.logger.warning("IAM propagation may be slow. URL should work shortly.")
                         
@@ -1626,7 +1656,41 @@ class GCloudService:
                 'remediation': humanized['remediation']
             }
             
-    async    def list_cloud_run_services(self):
+    async def delete_service(self, service_name: str) -> bool:
+        """
+        [FAANG] Remote Resource Cleanup
+        Soft-delete a Cloud Run service to prevent quota seepage.
+        """
+        try:
+            from google.cloud import run_v2
+            
+            if not self.run_client:
+                 self.run_client = run_v2.ServicesClient()
+                 
+            name = f"projects/{self.project_id}/locations/{self.region}/services/{service_name}"
+            
+            self.logger.info(f"[GCloudService] 🗑️ Deleting remote service: {service_name}")
+            
+            operation = await asyncio.to_thread(
+                self.run_client.delete_service,
+                name=name
+            )
+            
+            # We don't necessarily need to wait for the operation to finish, 
+            # but let's confirm it started.
+            if operation:
+                self.logger.info(f"[SUCCESS] Remote deletion initiated for {service_name}")
+                return True
+            return False
+            
+        except google_exceptions.NotFound:
+            self.logger.info(f"[GCloudService] ℹ️ Service {service_name} already purged from Cloud Run.")
+            return True
+        except Exception as e:
+            self.logger.warning(f"[GCloudService] ⚠️ Remote deletion failed for {service_name}: {e}")
+            return False
+
+    async def list_cloud_run_services(self):
         """
         [FAANG] Service Discovery
         List all active Cloud Run services in the project/region.
@@ -1634,28 +1698,158 @@ class GCloudService:
         """
         try:
             from google.cloud import run_v2
+            
+            # Ensure client is ready
+            if not self.run_client:
+                 self.run_client = run_v2.ServicesClient()
+                 
             request = run_v2.ListServicesRequest(
                 parent=f"projects/{self.project_id}/locations/{self.region}"
             )
             
-            # Make the request
-            page_result = self.run_client.list_services(request=request)
+            # Make the request using asyncio.to_thread for safety
+            page_result = await asyncio.to_thread(
+                self.run_client.list_services, 
+                request=request
+            )
             
             services = []
             for service in page_result:
+                # [FAANG FIX] Correct attribute access and parsing
+                s_name = service.name.split('/')[-1]
                 services.append({
-                    'name': svc_name,
-                    'url': url,
+                    'name': s_name,
+                    'url': service.uri,
                     'region': self.region,
-                    'status': status,
-                    'create_time': svc.create_time.isoformat() if svc.create_time else None
+                    'status': service.terminal_condition.state.name if service.terminal_condition else 'UNKNOWN',
+                    'create_time': service.create_time.isoformat() if service.create_time else None
                 })
                 
             return services
             
         except Exception as e:
-            self.logger.warning(f"Failed to list Cloud Run services: {e}")
+            self.logger.error(f"[GCloudService] List services failure: {str(e)}")
             return []
+
+    # ========================================================================
+    # CUSTOM DOMAIN MANAGEMENT (v1 API)
+    # ========================================================================
+
+    def _get_run_v1_client(self):
+        """Lazy initialization of Google API Client for Cloud Run v1 (Domain Mappings)"""
+        from googleapiclient import discovery
+        return discovery.build('run', 'v1', cache_discovery=False)
+
+    async def create_domain_mapping(self, service_name: str, domain_name: str, force_override: bool = False):
+        """
+        Create a custom domain mapping for a Cloud Run service.
+        Uses the v1 API because v2 doesn't support this yet.
+        """
+        try:
+            api = self._get_run_v1_client()
+            parent = f"namespaces/{self.project_id}"
+            
+            body = {
+                "apiVersion": "domains.cloudrun.com/v1",
+                "kind": "DomainMapping",
+                "metadata": {
+                    "name": domain_name,
+                    "namespace": self.project_id
+                },
+                "spec": {
+                    "routeName": service_name,
+                    "forceOverride": force_override
+                }
+            }
+            
+            print(f"[GCloudService] Creating domain mapping: {domain_name} -> {service_name}")
+            response = await asyncio.to_thread(
+                api.namespaces().domainmappings().create(
+                    parent=parent,
+                    body=body
+                ).execute
+            )
+            
+            return {
+                "status": "created",
+                "domain": domain_name,
+                "records": self._extract_dns_records(response)
+            }
+            
+        except Exception as e:
+            print(f"[GCloudService] Domain mapping failed: {e}")
+            return {"status": "error", "message": str(e)}
+
+    async def list_domain_mappings(self, service_name: Optional[str] = None):
+        """List verified domains for the project or specific service"""
+        try:
+            api = self._get_run_v1_client()
+            parent = f"namespaces/{self.project_id}"
+            
+            response = await asyncio.to_thread(
+                api.namespaces().domainmappings().list(parent=parent).execute
+            )
+            
+            mappings = []
+            for item in response.get('items', []):
+                route_name = item.get('spec', {}).get('routeName')
+                
+                # Filter by service if requested
+                if service_name and route_name != service_name:
+                    continue
+                    
+                mappings.append({
+                    "domain": item['metadata']['name'],
+                    "service": route_name,
+                    "created_at": item['metadata'].get('creationTimestamp'),
+                    "records": self._extract_dns_records(item),
+                    "status": self._get_mapping_status(item)
+                })
+                
+            return mappings
+        except Exception as e:
+            print(f"[GCloudService] List domains failed: {e}")
+            return []
+
+    async def delete_domain_mapping(self, domain_name: str):
+        """Remove a custom domain mapping"""
+        try:
+            api = self._get_run_v1_client()
+            name = f"namespaces/{self.project_id}/domainmappings/{domain_name}"
+            
+            await asyncio.to_thread(
+                api.namespaces().domainmappings().delete(name=name).execute
+            )
+            return True
+        except Exception as e:
+            print(f"[GCloudService] Delete domain failed: {e}")
+            return False
+
+    def _extract_dns_records(self, mapping):
+        """Extract DNS records from a domain mapping response"""
+        records = []
+        status = mapping.get('status', {})
+        resource_records = status.get('resourceRecords', [])
+        
+        for rec in resource_records:
+            records.append({
+                "type": rec.get('type', 'CNAME'),
+                "name": rec.get('name', ''),
+                "rrdata": rec.get('rrdata', '')
+            })
+            
+        return records
+
+    def _get_mapping_status(self, mapping):
+        """Parse domain mapping status"""
+        status = mapping.get('status', {})
+        conditions = status.get('conditions', [])
+        
+        for cond in conditions:
+            if cond.get('type') == 'Ready':
+                return 'verified' if cond.get('status') == 'True' else 'pending'
+                
+        return 'unknown'
     
     async def _verify_deployment_health(
         self,

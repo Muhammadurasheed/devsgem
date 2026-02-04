@@ -3,6 +3,7 @@ import { Key, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
 export function ApiKeySettings() {
   const [apiKey, setApiKey] = useState('');
@@ -22,14 +23,14 @@ export function ApiKeySettings() {
       return;
     }
 
+    const { reconnect } = useWebSocketContext();
+
     localStorage.setItem('servergemApiKey', apiKey.trim());
     setIsSaved(true);
     toast.success('API key saved successfully!');
-    
-    // Reload to reconnect WebSocket with new key
-    setTimeout(() => {
-      window.location.reload();
-    }, 1000);
+
+    // [FAANG] Graceful re-connection without disruptive full page reload
+    reconnect();
   };
 
   const handleRemove = () => {

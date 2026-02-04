@@ -36,6 +36,7 @@ interface WebSocketContextValue {
   // UI State
   isChatWindowOpen: boolean;
   toggleChatWindow: (isOpen?: boolean) => void;
+  reconnect: () => void;
 }
 
 const WebSocketContext = createContext<WebSocketContextValue | null>(null);
@@ -218,6 +219,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const toggleChatWindow = useCallback((isOpen?: boolean) => {
     setIsChatWindowOpen(prev => isOpen === undefined ? !prev : isOpen);
   }, []);
+
+  const reconnect = useCallback(() => {
+    console.log('[WebSocketProvider] 🔄 Manual reconnection requested');
+    client.disconnect();
+    setTimeout(() => {
+      client.connect();
+    }, 100);
+  }, [client]);
 
   useEffect(() => {
     refreshSessions();
@@ -615,6 +624,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         });
         break;
 
+      case 'ping':
+      case 'pong':
+      case 'snapshot_ready':
+        // [FAANG] Background signals - silently ignored here as they are 
+        // typically handled via onMessage listeners in specific components.
+        break;
+
       default:
         console.warn('Unknown message type:', serverMessage.type);
     }
@@ -652,6 +668,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     resetSession,
     isChatWindowOpen,
     toggleChatWindow,
+    reconnect,
   };
 
   return (

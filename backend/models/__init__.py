@@ -46,6 +46,8 @@ class Deployment:
     last_deployed: Optional[str] = None
     build_logs: List[str] = field(default_factory=list)
     stages: List[Dict] = field(default_factory=list)
+    framework: Optional[str] = None
+    language: Optional[str] = None
     error_message: Optional[str] = None
     request_count: int = 0
     uptime_percentage: float = 100.0

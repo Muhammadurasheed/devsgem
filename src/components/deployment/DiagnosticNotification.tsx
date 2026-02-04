@@ -1,11 +1,4 @@
-/**
- * DiagnosticNotification - AI-Powered Error Diagnosis UI
- * 
- * This component displays Gemini Brain's error diagnosis when a deployment fails.
- * It shows the root cause, affected files, and provides an "Apply Fix" action.
- * 
- * Part of the Self-Healing Infrastructure (Hackathon Feature)
- */
+
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';

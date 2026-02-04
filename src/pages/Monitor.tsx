@@ -7,7 +7,8 @@ import { Activity, Cpu, Server, FileText, ArrowLeft, RefreshCw, Loader2, Zap } f
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from 'sonner';
+import { useDeployments, Deployment } from '@/hooks/useDeployments';
 import { RuntimeLogs } from "@/components/deployment/RuntimeLogs";
 
 interface MetricPoint {
@@ -24,7 +25,6 @@ interface MetricsData {
 export default function Monitor() {
     const { deploymentId } = useParams();
     const navigate = useNavigate();
-    const { toast } = useToast();
 
     const [metrics, setMetrics] = useState<MetricsData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -33,22 +33,23 @@ export default function Monitor() {
 
     const fetchMetrics = async (isRefresh = false) => {
         if (!deploymentId) return;
+        const { apiClient } = await import("@/lib/api/client");
 
         try {
             if (isRefresh) setRefreshing(true);
             else setLoading(true);
 
-            // Fetch Deployment Info
-            const depRes = await fetch(`http://localhost:8000/api/deployments/${deploymentId}`);
-            if (depRes.ok) {
-                const depData = await depRes.json();
-                setServiceName(depData.service_name);
+            // Fetch Deployment Info & Metrics in parallel for FAANG performance
+            const [depData, data] = await Promise.all([
+                apiClient.getDeployment(deploymentId),
+                apiClient.getMetrics(deploymentId, 60)
+            ]);
+
+            if (depData) {
+                setServiceName((depData as any).service_name);
             }
 
-            // Fetch Metrics
-            const metricsRes = await fetch(`http://localhost:8000/api/deployments/${deploymentId}/metrics?minutes=60`);
-            if (metricsRes.ok) {
-                const data = await metricsRes.json();
+            if (data) {
                 // Format timestamps for display
                 const formatData = (points: any[]) => points.map(p => ({
                     ...p,
@@ -63,10 +64,8 @@ export default function Monitor() {
             }
         } catch (error) {
             console.error(error);
-            toast({
-                title: "Error fetching metrics",
-                description: "Could not load monitoring data.",
-                variant: "destructive",
+            toast.error("Monitoring Offline", {
+                description: "Could not establish connection to telemetry stream.",
             });
         } finally {
             setLoading(false);

@@ -57,7 +57,7 @@ class MonitoringAgent:
         try:
             cloud_services = await self.gcloud_svc.list_cloud_run_services()
             if cloud_services:
-                deployment_service.reconcile_with_cloud(cloud_services)
+                await deployment_service.reconcile_with_cloud(cloud_services)
         except Exception as e:
             print(f"[MonitoringAgent] Reconciliation warning: {e}")
 
