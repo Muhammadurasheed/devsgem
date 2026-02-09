@@ -45,15 +45,42 @@ class DeploymentService:
         return deployments
 
     def _save_deployments(self):
-        """Save deployments using atomic store"""
+        """Save deployments using atomic store and sync to GCS [Distributed-Fix]"""
         try:
             data = {
                 dep_id: dep.to_dict()
                 for dep_id, dep in self._deployments.items()
             }
             self.store.save(data)
+            
+            # [FAANG] Background Cloud Synchronization
+            # We fire-and-forget the upload to ensure the main thread stays responsive.
+            # Only sync if we are in production or STATE_BUCKET is set.
+            if os.getenv('STATE_BUCKET'):
+                import asyncio
+                from services.cloud_storage_service import cloud_storage_service
+                asyncio.create_task(cloud_storage_service.upload_file(
+                    str(self.storage_path), 
+                    "state/deployments.json"
+                ))
+                
         except Exception as e:
             print(f"[DeploymentService] [CRITICAL] Failed to save deployments: {e}")
+
+    async def restore_from_cloud(self):
+        """Restore local state from GCS [Distributed-Fix]"""
+        if os.getenv('STATE_BUCKET'):
+            from services.cloud_storage_service import cloud_storage_service
+            success = await cloud_storage_service.download_file(
+                "state/deployments.json",
+                str(self.storage_path)
+            )
+            if success:
+                print(f"[DeploymentService] [CLOUD-RESTORE] State successfully rehydrated from GCS.")
+                # Reload our in-memory map
+                self._deployments = self._load_deployments()
+            else:
+                print(f"[DeploymentService] [CLOUD-RESTORE] No cloud state found or download failed. Using local.")
 
     async def create_deployment(self, 
                               service_name: str,
@@ -436,6 +463,25 @@ class DeploymentService:
             dep.language = language
             dep.updated_at = datetime.utcnow().isoformat() + "Z"
             self._save_deployments()
+
+    async def update_service_name(self, deployment_id: str, service_name: str):
+        """Update deployment authoritative service name [FAANG-FIX]"""
+        if deployment_id in self._deployments:
+            dep = self._deployments[deployment_id]
+            old_name = dep.service_name
+            if old_name != service_name:
+                print(f"[DeploymentService] [SYNC] Authoritative name shift: {old_name} -> {service_name}")
+                dep.service_name = service_name
+                dep.updated_at = datetime.utcnow().isoformat() + "Z"
+                self._save_deployments()
+                
+                # Broadcast shift to frontend
+                if self.broadcaster:
+                    import asyncio
+                    asyncio.create_task(self.broadcaster({
+                        "type": "deployment_update",
+                        "deployment": dep.to_dict()
+                    }))
 
     # [FAANG] Reconciler Interface
     def list_all_deployments(self) -> List[Deployment]:

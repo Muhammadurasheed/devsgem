@@ -816,13 +816,23 @@ class OrchestratorAgent:
                     log_content = data.get('details') or data.get('log_excerpt') or data.get('logs')
                     
                     if log_content:
+                        # [FAANG] Noise Suppression: Filter out orchestration status lines
+                        # These provide no value to the user and clutter the Build Artifacts viewport.
+                        noise_patterns = ['git: ', 'bash: ', 'executor:latest: ', 'STATUS_UNKNOWN']
+                        
                         # Handle both list of lines and raw string
                         if isinstance(log_content, list):
                             for line in log_content:
-                                deployment_service.add_build_log(deployment_id, str(line))
+                                str_line = str(line)
+                                if any(pattern in str_line for pattern in noise_patterns):
+                                    continue
+                                deployment_service.add_build_log(deployment_id, str_line)
                         else:
-                            deployment_service.add_build_log(deployment_id, str(log_content))
+                            str_line = str(log_content)
+                            if not any(pattern in str_line for pattern in noise_patterns):
+                                deployment_service.add_build_log(deployment_id, str_line)
 
+                    status_val = data.get('status')
                     if status_val in ['success', 'error', 'live', 'failed']:
                         if status_val == 'live':
                             db_status = DeploymentStatus.LIVE
@@ -3437,9 +3447,19 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             self.monitoring.record_stage(deployment_id, 'deploy', 'success', deploy_duration)
             
             # [SUCCESS] PHASE 3: Map custom domain (Real-time)
+            # CRITICAL: Capture authoritative service name returned by GCP
+            authoritative_service_name = deploy_result.get('service_name', service_name)
+            if deployment_id:
+                print(f"[Orchestrator] [SYNC] Syncing authoritative service name to database: {authoritative_service_name}")
+                await deployment_service.update_service_name(deployment_id, authoritative_service_name)
+                # Update local context to prevent downstream drift
+                self.project_context['deployed_service'] = authoritative_service_name
+                if self.active_deployment:
+                    self.active_deployment['serviceName'] = authoritative_service_name
+
             domain_result = await self.domain_service.map_custom_domain(
-                service_name, 
-                f"{service_name}.servergem.app"
+                authoritative_service_name, 
+                f"{authoritative_service_name}.servergem.app"
             )
             # DO NOT overwrite the primary URL if custom domain is not fully ready/verified
             # The Cloud Run URL is the more "certain" working link

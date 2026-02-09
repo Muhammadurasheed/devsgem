@@ -121,7 +121,53 @@ async def lifespan(app: FastAPI):
     tasks.append(asyncio.create_task(monitor_deployments()))
     
     print("[DevGem] Background autonomous systems engaged")
+
+    # [FAANG] Initialize Distributed State
+    # This restores deployments.json from GCS to handle Cloud Run ephemeral restarts
+    try:
+        print("[System] [CLOUD] Initializing distributed state rehydration...")
+        await deployment_service.restore_from_cloud()
+    except Exception as state_err:
+        print(f"[System] [CLOUD] [ERROR] Failed to restore state: {state_err}")
     
+    # [HEALING] Autonomous Service Name Reconciliation
+    # Fixes stale service names in the database by reconciling with their live URLs.
+    # Essential for zero-intervention environment synchronization.
+    try:
+        print("[System] [HEALING] Initiating autonomous service name reconciliation...")
+        all_deps = deployment_service.list_all_deployments()
+        healed_count = 0
+        for dep in all_deps:
+            if dep.url and "a.run.app" in dep.url and dep.status == DeploymentStatus.LIVE:
+                # Extract service name from GCP URL: https://{service_name}-{hash}-{region}.a.run.app
+                try:
+                    # Subdomain is everything before the first '-' that precedes the hash
+                    # Example: https://deploy-1-devgem-server-n3vlci4vfq-uc.a.run.app
+                    subdomain = dep.url.split("//")[-1].split(".")[0]
+                    # The unique name is everything before the last dash (the hash)
+                    dash_parts = subdomain.split("-")
+                    if len(dash_parts) > 1:
+                        # Cloud Run unique names look like {original_name}-{hash}
+                        # We want {original_name} which is everything except the last part
+                        # unless it's a known region suffix like -uc
+                        if dash_parts[-1] in ['uc', 'ew', 'as', 'ne']: # common region abbreviations in domain
+                             actual_unique_name = "-".join(dash_parts[:-1])
+                        else:
+                             actual_unique_name = "-".join(dash_parts[:-1])
+                        
+                        # Verify if this matches the stale name
+                        if actual_unique_name != dep.service_name:
+                             print(f"[System] [HEALING] Reconciling stale record: {dep.id} ({dep.service_name} -> {actual_unique_name})")
+                             await deployment_service.update_service_name(dep.id, actual_unique_name)
+                             healed_count += 1
+                except Exception as parse_err:
+                    print(f"[System] [HEALING] [WARN] Parse error for {dep.url}: {parse_err}")
+        
+        if healed_count > 0:
+            print(f"[System] [HEALING] [SUCCESS] Reconciled {healed_count} stale deployment records.")
+    except Exception as heal_err:
+        print(f"[System] [HEALING] [ERROR] Healing routine failed: {heal_err}")
+
     yield
     
     # Shutdown logic
@@ -2469,7 +2515,8 @@ async def get_deployment_env_vars(deployment_id: str):
     
     env_vars = await secret_sync_service.load_from_secret_manager(
         deployment_id=deployment_id,
-        user_id=deployment.user_id
+        user_id=deployment.user_id,
+        repo_url=deployment.repo_url
     )
     
     return {

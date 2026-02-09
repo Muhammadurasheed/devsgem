@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from .session_store import SessionStore
 
-DB_PATH = "devgem_sessions.db"
+DB_PATH = "data/devgem_sessions.db"
 
 class SQLiteSessionStore(SessionStore):
     """
