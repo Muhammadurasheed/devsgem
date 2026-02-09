@@ -654,6 +654,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
       case 'ping':
       case 'pong':
+      case 'connected':
       case 'snapshot_ready':
         // [FAANG] Background signals - silently ignored here as they are 
         // typically handled via onMessage listeners in specific components.

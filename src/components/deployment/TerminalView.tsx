@@ -21,7 +21,7 @@ export const TerminalView = ({ logs, className, autoScroll = true, centerOnLoad 
     // [FAANG] Noise Suppression (Client-Side Safety Net)
     const filteredLogs = useMemo(() => {
         const noisePatterns = ['git: ', 'bash: ', 'executor:latest: ', 'STATUS_UNKNOWN'];
-        return logs.filter(log => !noise_patterns.some(pattern => log.includes(pattern)));
+        return logs.filter(log => !noisePatterns.some(pattern => log.includes(pattern)));
     }, [logs]);
 
     const scrollToBottom = () => {

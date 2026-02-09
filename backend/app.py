@@ -60,6 +60,7 @@ from services.deployment_service import deployment_service
 from services.user_service import user_service
 from services.usage_service import usage_service
 from services.branding_service import BrandingService
+# [FAANG] Initialize Branding Engine with premium asset discovery
 branding_service = BrandingService("branding_assets/sovereign_logos")
 from services.source_control_service import source_control_service, RepoWatchConfig
 from agents.monitoring_agent import MonitoringAgent
@@ -627,47 +628,7 @@ async def get_favicon_proxy(url: str):
 # ============================================================================
 # LOCAL ASSET SERVICE (FAANG Level)
 # ============================================================================
-from services.branding_service import BrandingService
-from pathlib import Path
 
-# [FAANG] Initialize with absolute path logic to ensure it works in all environments
-BASE_DIR = Path(__file__).resolve().parent.parent
-ASSETS_DIR = BASE_DIR / "All_logo_and_pictures"
-
-if not ASSETS_DIR.exists():
-    # Try alternate location if running in different context
-    ASSETS_DIR = Path("C:/Users/HP/Documents/devsgem/All_logo_and_pictures")
-
-branding_svc = BrandingService(str(ASSETS_DIR))
-
-@app.get("/api/branding/assets/match")
-async def match_branding_asset(query: str):
-    """
-    [FAANG] Fuzzy Match & Serve Local Asset
-    Identifies the best local icon for a framework/language and streams it.
-    """
-    if not query:
-        raise HTTPException(status_code=400, detail="Query required")
-        
-    asset_path = branding_svc.get_asset_path(query)
-    
-    if asset_path and asset_path.exists():
-        # Determine media type for correct browser rendering
-        suffix = asset_path.suffix.lower()
-        media_types = {
-            '.svg': 'image/svg+xml',
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.webp': 'image/webp'
-        }
-        media_type = media_types.get(suffix, 'application/octet-stream')
-        
-        print(f"[Branding] 🎯 Matched '{query}' -> {asset_path.name}")
-        return FileResponse(asset_path, media_type=media_type)
-        
-    print(f"[Branding] ❌ No match for '{query}'")
-    raise HTTPException(status_code=404, detail="Asset not found")
 
 
 @app.get("/api/chat/sessions")
@@ -2704,12 +2665,22 @@ async def proxy_branding_favicon(url: str, response: Response):
 @app.get("/api/branding/assets/match")
 async def match_branding_asset(query: str):
     """[FAANG] High-fidelity sovereign asset match for frameworks/languages"""
+    # Use the correct method: match_asset
     file_path = branding_service.match_asset(query)
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="No matching asset found")
     
-    # Serve the local file directly
-    return FileResponse(path=file_path)
+    # Serve the local file directly with correct media type
+    suffix = file_path.suffix.lower()
+    media_types = {
+        '.svg': 'image/svg+xml',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.webp': 'image/webp'
+    }
+    media_type = media_types.get(suffix, 'application/octet-stream')
+    return FileResponse(path=file_path, media_type=media_type)
 
 @app.post("/api/deployments/{deployment_id}/preview/regenerate")
 async def regenerate_deployment_preview(deployment_id: str, background_tasks: BackgroundTasks):
