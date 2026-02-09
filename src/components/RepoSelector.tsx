@@ -5,18 +5,45 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Search, Star, Lock, Globe, GitBranch, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import { Search, Star, Lock, Globe, GitBranch, ExternalLink, Loader2, RefreshCw, Rocket } from 'lucide-react';
 import { useGitHub } from '@/hooks/useGitHub';
 import { getTechLogo } from '@/lib/utils/logo-utils';
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+
 interface RepoSelectorProps {
-  onSelectRepo: (repoUrl: string, branch: string) => void;
+  onSelectRepo: (repoUrl: string, branch: string, rootDir?: string) => void;
 }
 
 export const RepoSelector = ({ onSelectRepo }: RepoSelectorProps) => {
   const { repositories, isLoading, fetchRepositories, isConnected } = useGitHub();
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredRepos, setFilteredRepos] = useState(repositories);
+  const [selectedRepoForConfig, setSelectedRepoForConfig] = useState<any>(null);
+  const [rootDir, setRootDir] = useState('');
+  const [branch, setBranch] = useState('');
+
+  const handleDeployClick = (repo: any, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedRepoForConfig(repo);
+    setRootDir('');
+    setBranch(repo.default_branch);
+  };
+
+  const handleConfirmDeploy = () => {
+    if (selectedRepoForConfig) {
+      onSelectRepo(selectedRepoForConfig.clone_url, branch, rootDir);
+      setSelectedRepoForConfig(null);
+    }
+  };
 
   useEffect(() => {
     if (isConnected && repositories.length === 0 && !isLoading) {
@@ -120,7 +147,7 @@ export const RepoSelector = ({ onSelectRepo }: RepoSelectorProps) => {
                 <div key={repo.id}>
                   <div
                     className="p-4 rounded-lg border border-border/50 bg-card hover:bg-accent/50 transition-colors cursor-pointer group"
-                    onClick={() => onSelectRepo(repo.clone_url, repo.default_branch)}
+                    onClick={(e) => handleDeployClick(repo, e)}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0 space-y-2">
@@ -181,8 +208,7 @@ export const RepoSelector = ({ onSelectRepo }: RepoSelectorProps) => {
                         <Button
                           size="sm"
                           onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectRepo(repo.clone_url, repo.default_branch);
+                            handleDeployClick(repo, e);
                           }}
                           className="opacity-0 group-hover:opacity-100 transition-opacity"
                         >
@@ -204,6 +230,51 @@ export const RepoSelector = ({ onSelectRepo }: RepoSelectorProps) => {
           </p>
         )}
       </CardContent>
+
+      <Dialog open={!!selectedRepoForConfig} onOpenChange={(open) => !open && setSelectedRepoForConfig(null)}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Configure Deployment</DialogTitle>
+            <DialogDescription>
+              Set up your deployment options for <strong>{selectedRepoForConfig?.name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="branch" className="text-right">
+                Branch
+              </Label>
+              <Input
+                id="branch"
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="rootDir" className="text-right">
+                Root Directory
+              </Label>
+              <Input
+                id="rootDir"
+                value={rootDir}
+                onChange={(e) => setRootDir(e.target.value)}
+                placeholder="e.g. backend (Optional)"
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedRepoForConfig(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmDeploy}>
+              <Rocket className="w-4 h-4 mr-2" />
+              Deploy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };

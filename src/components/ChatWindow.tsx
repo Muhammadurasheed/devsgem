@@ -248,7 +248,7 @@ const ChatWindow = ({ onClose, initialMessage }: ChatWindowProps) => {
       case 'reconnecting': return `Reconnecting (${connectionStatus.reconnectAttempt || 1})...`;
       case 'disconnected': return 'Offline';
       case 'error': return 'Connection Error';
-      default: return 'Initializing...';
+      default: return 'Deploying...';
     }
   };
 
@@ -304,7 +304,7 @@ const ChatWindow = ({ onClose, initialMessage }: ChatWindowProps) => {
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-thin scrollbar-thumb-[#8b5cf6]/20">
+              <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
                 {sessions.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-center p-4">
                     <History className="w-12 h-12 text-white/5 mb-2" />
@@ -495,7 +495,7 @@ const ChatWindow = ({ onClose, initialMessage }: ChatWindowProps) => {
 
       {!isMinimized && (
         <>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center space-y-6">
                 <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#8b5cf6] flex items-center justify-center">

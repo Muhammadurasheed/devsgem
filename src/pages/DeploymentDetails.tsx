@@ -18,6 +18,7 @@ import {
     Cpu,
     Zap,
     History,
+    User,
     ArrowLeft
 } from "lucide-react";
 import { useQuery } from '@tanstack/react-query';
@@ -237,21 +238,55 @@ export default function DeploymentDetails() {
 
                                     <Card>
                                         <CardHeader>
-                                            <CardTitle className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Source</CardTitle>
+                                            <CardTitle className="text-sm font-medium uppercase tracking-widest text-muted-foreground flex items-center justify-between">
+                                                <span>Source & Version</span>
+                                                <GitBranch className="w-4 h-4" />
+                                            </CardTitle>
                                         </CardHeader>
-                                        <CardContent>
-                                            <div className="flex items-center gap-3">
-                                                <GitBranch className="w-5 h-5 text-muted-foreground" />
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="text-sm font-medium truncate">{deployment.repo_url?.split('/').pop() || 'Repository'}</div>
-                                                    <div className="text-xs text-muted-foreground flex items-center gap-1">
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500" /> main
+                                        <CardContent className="space-y-4">
+                                            {/* Repository Link */}
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <Globe className="w-4 h-4 text-blue-400" />
+                                                    <a href={deployment.repo_url} target="_blank" rel="noreferrer" className="font-medium hover:underline truncate max-w-[200px]">
+                                                        {deployment.repo_url?.split('/').slice(-2).join('/') || 'Repository'}
+                                                    </a>
+                                                </div>
+                                                <Badge variant="outline" className="font-mono text-xs">main</Badge>
+                                            </div>
+
+                                            {/* Commit Info Section */}
+                                            {deployment.commit_hash ? (
+                                                <div className="rounded-lg bg-muted/40 p-3 space-y-3 border border-border/50">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="space-y-1">
+                                                            <div className="text-sm font-medium leading-none line-clamp-2" title={deployment.commit_message}>
+                                                                {deployment.commit_message || "No commit message"}
+                                                            </div>
+                                                            <div className="flex items-center gap-3 text-xs text-muted-foreground mt-2">
+                                                                <span className="flex items-center gap-1">
+                                                                    <User className="w-3 h-3" />
+                                                                    {deployment.commit_author || "Unknown"}
+                                                                </span>
+                                                                <span className="flex items-center gap-1">
+                                                                    <Clock className="w-3 h-3" />
+                                                                    {deployment.commit_date ? formatDistanceToNow(new Date(deployment.commit_date), { addSuffix: true }) : 'recently'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 pt-1 border-t border-border/30 mt-2">
+                                                        <div className="flex items-center gap-1.5 py-0.5 rounded-md text-xs font-mono text-muted-foreground">
+                                                            <GitBranch className="w-3 h-3 text-primary" />
+                                                            Commit <span className="bg-background px-1.5 py-0.5 rounded border border-border">{deployment.commit_hash.substring(0, 7)}</span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => window.open(deployment.repo_url, '_blank')}>
-                                                    View
-                                                </Button>
-                                            </div>
+                                            ) : (
+                                                <div className="text-sm text-muted-foreground italic flex items-center gap-2 py-2">
+                                                    <Activity className="w-3 h-3" /> Awaiting git metadata...
+                                                </div>
+                                            )}
                                         </CardContent>
                                     </Card>
                                 </div>

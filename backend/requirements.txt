@@ -28,3 +28,7 @@ python-dotenv==1.0.1
 
 # Screenshot Generation (FAANG-Level Previews)
 playwright==1.49.1
+
+# Production Crawling & Scraping (Branding Service)
+beautifulsoup4==4.12.3
+httpx==0.27.0

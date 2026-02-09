@@ -57,13 +57,14 @@ from agents.orchestrator import OrchestratorAgent
 from services.deployment_service import deployment_service
 from services.user_service import user_service
 from services.usage_service import usage_service
-from services.branding_service import branding_service
+from services.branding_service import BrandingService
+branding_service = BrandingService("branding_assets/sovereign_logos")
+from services.source_control_service import source_control_service, RepoWatchConfig
+from agents.monitoring_agent import MonitoringAgent
 from middleware.usage_tracker import UsageTrackingMiddleware
 from models import DeploymentStatus, PlanTier, User
 
 # Import progress notifier
-import sys
-sys.path.append(os.path.dirname(__file__))
 from utils.progress_notifier import ProgressNotifier, DeploymentStages
 from services.session_store import get_session_store
 
@@ -75,14 +76,12 @@ async def lifespan(app: FastAPI):
     Unified Application Lifespan Handler
     [FAANG-LEVEL] Managed resource initialization and cleanup
     """
-    print("[System] 🚀 DevGem Backend Starting Up...")
+    print("[System] DevGem Backend Starting Up...")
     
     # Initialize Source Control Service (Smart Polling CI/CD)
-    from services.source_control_service import source_control_service, RepoWatchConfig
-    
     async def on_repo_changes(config: RepoWatchConfig, result):
         """Callback when changes are detected - trigger auto-redeploy"""
-        print(f"[AutoDeploy] 🔄 Changes detected in {config.repo_url}, triggering redeploy...")
+        print(f"[AutoDeploy] Changes detected in {config.repo_url}, triggering redeploy...")
         try:
             # Get the orchestrator for this deployment
             deployment = deployment_service.get_deployment(config.deployment_id)
@@ -101,6 +100,17 @@ async def lifespan(app: FastAPI):
     source_control_service.register_callback(on_repo_changes)
     source_control_service.start_polling()
     
+    # [FAANG] Real-time Sync Injection
+    # We define a global broadcaster that iterates over all active sessions
+    async def global_broadcaster(payload: dict):
+        """High-performance global broadcast for system events"""
+        for session_id in list(active_connections.keys()):
+            # Fire and forget for maximum throughput
+            asyncio.create_task(safe_send_json(session_id, payload))
+            
+    # Inject into DeploymentService
+    deployment_service.set_broadcaster(global_broadcaster)
+    
     # Initialize background tasks
     tasks = []
     tasks.append(asyncio.create_task(cleanup_memory_cache()))
@@ -113,7 +123,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown logic
-    print("[System] 🛑 DevGem Backend Shutting Down...")
+    print("[System] DevGem Backend Shutting Down...")
     for task in tasks:
         task.cancel()
     
@@ -122,7 +132,7 @@ async def lifespan(app: FastAPI):
     
     # Use gather with return_exceptions=True for clean exit
     await asyncio.gather(*tasks, return_exceptions=True)
-    print("[System] 🛡️ All systems safely retired")
+    print("[System] All systems safely retired")
 
 app = FastAPI(
     title="DevGem API",
@@ -167,8 +177,6 @@ orchestrator = OrchestratorAgent(
 )
 
 # Initialize Monitoring Agent
-from agents.monitoring_agent import MonitoringAgent
-
 async def monitoring_alert_hook(user_id: str, payload: dict):
     # Broadcast to all sessions for this user
     for session_id, info in active_connections.items():
@@ -184,6 +192,7 @@ session_store = get_session_store()
 class ChatMessage(BaseModel):
     message: str
     session_id: str
+    metadata: Optional[Dict[str, Any]] = None
 
 
 # ============================================================================
@@ -507,6 +516,86 @@ async def get_chat_history(payload: dict):
         return {"messages": [], "activeDeployment": None, "error": str(e)}
 
 
+@app.get("/api/branding/favicon")
+async def get_favicon_proxy(url: str):
+    """
+    [FAANG] Sovereign Branding Proxy
+    Fetches favicon from target URL to avoid CORS/mixed-content issues.
+    """
+    if not url:
+        return Response(status_code=400)
+        
+    # [FAANG] Security: SSRF Protection (Basic)
+    # In prod, we'd strict allowlist. For now, we allow any http/s
+    if not (url.startswith("http://") or url.startswith("https://")):
+         return Response(status_code=400)
+
+    try:
+        async with httpx.AsyncClient(timeout=3.0, verify=False) as client:
+            # Try /favicon.ico first
+            target = f"{url.rstrip('/')}/favicon.ico"
+            response = await client.get(target)
+            
+            if response.status_code == 200 and response.content:
+                return Response(content=response.content, media_type="image/x-icon")
+                
+            # Fallback: Google S2 (Reliable)
+            # We redirect client to Google's service which is highly available
+            domain = url.split("//")[-1].split("/")[0]
+            return RedirectResponse(f"https://www.google.com/s2/favicons?domain={domain}&sz=128")
+            
+    except Exception as e:
+        print(f"[Branding] Proxy failed for {url}: {e}")
+        # Final fallback
+        domain = url.split("//")[-1].split("/")[0]
+        return RedirectResponse(f"https://www.google.com/s2/favicons?domain={domain}&sz=128")
+
+# ============================================================================
+# LOCAL ASSET SERVICE (FAANG Level)
+# ============================================================================
+from services.branding_service import BrandingService
+from pathlib import Path
+
+# [FAANG] Initialize with absolute path logic to ensure it works in all environments
+BASE_DIR = Path(__file__).resolve().parent.parent
+ASSETS_DIR = BASE_DIR / "All_logo_and_pictures"
+
+if not ASSETS_DIR.exists():
+    # Try alternate location if running in different context
+    ASSETS_DIR = Path("C:/Users/HP/Documents/devsgem/All_logo_and_pictures")
+
+branding_svc = BrandingService(str(ASSETS_DIR))
+
+@app.get("/api/branding/assets/match")
+async def match_branding_asset(query: str):
+    """
+    [FAANG] Fuzzy Match & Serve Local Asset
+    Identifies the best local icon for a framework/language and streams it.
+    """
+    if not query:
+        raise HTTPException(status_code=400, detail="Query required")
+        
+    asset_path = branding_svc.get_asset_path(query)
+    
+    if asset_path and asset_path.exists():
+        # Determine media type for correct browser rendering
+        suffix = asset_path.suffix.lower()
+        media_types = {
+            '.svg': 'image/svg+xml',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.webp': 'image/webp'
+        }
+        media_type = media_types.get(suffix, 'application/octet-stream')
+        
+        print(f"[Branding] 🎯 Matched '{query}' -> {asset_path.name}")
+        return FileResponse(asset_path, media_type=media_type)
+        
+    print(f"[Branding] ❌ No match for '{query}'")
+    raise HTTPException(status_code=404, detail="Asset not found")
+
+
 @app.get("/api/chat/sessions")
 async def list_sessions():
     """List all available chat sessions with metadata"""
@@ -621,7 +710,8 @@ async def chat(message: ChatMessage):
     try:
         response = await orchestrator.process_message(
             message.message,
-            message.session_id
+            message.session_id,
+            metadata=getattr(message, 'metadata', None) # Pass metadata if available
         )
         return response
     except Exception as e:
@@ -1130,6 +1220,10 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                 # Check for an already active deployment in this session
                 if existing_deployment and existing_deployment.get('deploymentId'):
                     deployment_id = existing_deployment['deploymentId']
+                elif user_orchestrator.project_context.get('deployment_id'):
+                    # [FAANG] Fallback: Check orchestrator context for persisted ID
+                    deployment_id = user_orchestrator.project_context['deployment_id']
+                    print(f"[WebSocket] [FAANG] Recovered deployment_id from project_context: {deployment_id}")
                 
                 if deployment_id:
                     print(f"[WebSocket] ♻️ Reusing deployment identity: {deployment_id}")
@@ -1219,6 +1313,7 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                         explicit_env_vars=flat_env_vars,
                         safe_send=safe_send_json,
                         session_id=session_id,
+                        deployment_id=deployment_id, # [FAANG] Pass authoritative ID
                         abort_event=session_abort_events.get(session_id) # [FAANG] Pass abort event
                     )
                     
@@ -1239,27 +1334,33 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                     deploy_data = response.get('data', {})
                     if deploy_data and deploy_data.get('url'):
                         try:
-                            print(f"[WebSocket] 💾 Persisting deployment (Standard): {deploy_data.get('service_name')}")
-                            dep_record = deployment_service.create_deployment(
-                                user_id=user_id,
-                                service_name=deploy_data.get('service_name', 'unknown'),
-                                repo_url=deploy_data.get('repo_url', user_orchestrator.project_context.get('repo_url', '')),
-                                region=deploy_data.get('region', 'us-central1'),
-                                env_vars=deploy_data.get('env_vars', flat_env_vars)
-                            )
-                            deployment_service.update_deployment_status(
-                                dep_record.id,
-                                str(DeploymentStatus.LIVE),
-                                gcp_url=deploy_data.get('url')
-                            )
-                            print(f"[WebSocket] ✅ Deployment persisted: {dep_record.id}")
+                            # [FIX] Use existing deployment_id from orchestrator context instead of creating duplicate
+                            existing_id = user_orchestrator.project_context.get('deployment_id') or deploy_data.get('deployment_id')
+                            print(f"[WebSocket] 💾 Updating deployment (Standard): {deploy_data.get('service_name')} [ID: {existing_id}]")
+                            
+                            if existing_id:
+                                # Deployment already exists - just update status and URL
+                                dep_record = deployment_service.get_deployment(existing_id)
+                                if dep_record:
+                                    await deployment_service.update_deployment_status(
+                                        existing_id,
+                                        str(DeploymentStatus.LIVE),
+                                        gcp_url=deploy_data.get('url')
+                                    )
+                                    print(f"[WebSocket] ✅ Deployment updated: {existing_id}")
+                                else:
+                                    print(f"[WebSocket] ⚠️ Deployment {existing_id} not found, skipping update")
+                            else:
+                                print(f"[WebSocket] ⚠️ check_persistence: No deployment_id in context, skipping redundant creation.")
+
+
 
                             # [MAANG BRIDGE] Transfer Secrets from Repo-ID to Deployment-ID
                             try:
                                 from services.secret_sync_service import secret_sync_service
                                 repo_url = deploy_data.get('repo_url', user_orchestrator.project_context.get('repo_url', ''))
-                                if repo_url:
-                                    print(f"[WebSocket] [MAANG] Bridging secrets: {repo_url} -> {dep_record.id}")
+                                if repo_url and existing_id:
+                                    print(f"[WebSocket] [MAANG] Bridging secrets: {repo_url} -> {existing_id}")
                                     env_vars = await secret_sync_service.load_from_secret_manager(
                                         deployment_id=None,
                                         user_id=user_id,
@@ -1268,12 +1369,13 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                                     if env_vars:
                                         # Save under deployment_id for permanent dashboard access
                                         await secret_sync_service.save_to_secret_manager(
-                                            deployment_id=dep_record.id,
+                                            deployment_id=existing_id,
                                             user_id=user_id,
                                             env_vars=env_vars,
                                             repo_url=repo_url
                                         )
                                         print(f"[WebSocket] [MAANG] ✅ Secrets bridged successfully.")
+
                             except Exception as b_err:
                                 print(f"[WebSocket] [MAANG] ⚠️ Secret bridging skipped/failed: {b_err}")
                         except Exception as p_err:
@@ -1405,22 +1507,10 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                                 fix_deploy_data = deploy_result.get('data', {})
                                 if fix_deploy_data and fix_deploy_data.get('url'):
                                     try:
-                                        print(f"[WebSocket] 💾 Persisting deployment (Auto-Fix): {fix_deploy_data.get('service_name')}")
-                                        dep_record = deployment_service.create_deployment(
-                                            user_id=user_id, # [FIX] Use real user_id
-                                            service_name=fix_deploy_data.get('service_name', 'unknown'),
-                                            repo_url=fix_deploy_data.get('repo_url', repo_url),
-                                            region=fix_deploy_data.get('region', 'us-central1'),
-                                            env_vars=user_orchestrator.project_context.get('env_vars', {})
-                                        )
-                                        deployment_service.update_deployment_status(
-                                            dep_record.id,
-                                            str(DeploymentStatus.LIVE),
-                                            gcp_url=fix_deploy_data.get('url')
-                                        )
-                                        print(f"[WebSocket] ✅ Deployment persisted: {dep_record.id}")
+                                        # [FIX] Rely on Orchestrator's persistence
+                                        print(f"[WebSocket] 💾 Persistence handled by Orchestrator for Auto-Fix: {fix_deploy_data.get('service_name')}")
                                     except Exception as p_err:
-                                        print(f"[WebSocket] ❌ Persistence failed: {p_err}")
+                                        print(f"[WebSocket] ❌ Persistence check failed: {p_err}")
                             else:
                                 await safe_send_json(session_id, {
                                     'type': 'error',
@@ -1599,8 +1689,26 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
             # Handle chat messages
             if msg_type == 'message':
                 message = data.get('message')
-                metadata = data.get('metadata', {})  # ✅ Extract metadata
+                metadata = data.get('metadata', {})
+                # ✅ Merge context into metadata (Frontend sends explicit params in 'context')
+                context = data.get('context', {})
+                if context:
+                    metadata.update(context)
                 
+                # ✅ FAANG-LEVEL FIX: Explicitly update Orchestrator Context from Metadata
+                # This ensures root parameters (rootDir, branch, repoUrl) are authoritative
+                # and don't rely on fragile LLM text parsing.
+                if metadata:
+                    if metadata.get('rootDir'):
+                        user_orchestrator.project_context['root_dir'] = metadata['rootDir']
+                        print(f"[WebSocket] 📂 Monorepo Root Dir set: {metadata['rootDir']}")
+                    
+                    if metadata.get('repoUrl'):
+                         user_orchestrator.project_context['repo_url'] = metadata['repoUrl']
+                         
+                    if metadata.get('branch'):
+                        user_orchestrator.project_context['branch'] = metadata['branch']
+
                 if not message:
                     continue
                 
@@ -1869,7 +1977,8 @@ async def websocket_endpoint(websocket: WebSocket, api_key: Optional[str] = Quer
                             session_id,
                             progress_notifier=progress_notifier,
                             safe_send=safe_send_json,
-                            abort_event=session_abort_events.get(session_id)
+                            abort_event=session_abort_events.get(session_id),
+                            metadata=metadata # [NEW] Pass context/metadata
                         )
                         
                         # [SUCCESS] PERSISTENCE HOOK: Save successful deployment
@@ -2517,6 +2626,16 @@ async def proxy_branding_favicon(url: str, response: Response):
     response.headers["Cache-Control"] = "public, max-age=86400, immutable"
     return Response(content=content, media_type="image/x-icon")
 
+@app.get("/api/branding/assets/match")
+async def match_branding_asset(query: str):
+    """[FAANG] High-fidelity sovereign asset match for frameworks/languages"""
+    file_path = branding_service.match_asset(query)
+    if not file_path or not file_path.exists():
+        raise HTTPException(status_code=404, detail="No matching asset found")
+    
+    # Serve the local file directly
+    return FileResponse(path=file_path)
+
 @app.post("/api/deployments/{deployment_id}/preview/regenerate")
 async def regenerate_deployment_preview(deployment_id: str, background_tasks: BackgroundTasks):
     """[FAANG] Force regenerate preview in background"""
@@ -2682,6 +2801,73 @@ async def get_stats():
 # ============================================================================
 # BACKGROUND MONITORING TASK (Self-Healing)
 # ============================================================================
+
+# ============================================================================
+# GITHUB WEBHOOK ENDPOINT
+# ============================================================================
+
+@app.post("/api/github/webhook")
+async def github_webhook(request: Request, background_tasks: BackgroundTasks):
+    """
+    [FAANG] GitHub Webhook Receiver
+    Listens for push events and triggers auto-redeployment.
+    """
+    try:
+        # 1. Verify Event Type
+        event = request.headers.get("X-GitHub-Event", "ping")
+        if event == "ping":
+            return {"status": "pong", "message": "Webhook configured successfully"}
+        
+        if event != "push":
+            return {"status": "ignored", "reason": f"Event '{event}' ignored"}
+            
+        payload = await request.json()
+        
+        # 2. Extract Repository Info
+        repo_data = payload.get("repository", {})
+        repo_url = repo_data.get("html_url")
+        
+        if not repo_url:
+            return {"status": "error", "message": "Missing repository URL"}
+            
+        # 3. Extract Commit Info
+        commits = payload.get("commits", [])
+        if not commits:
+             return {"status": "ignored", "reason": "No commits in push"}
+             
+        # Use head commit or first commit
+        head_commit = payload.get("head_commit") or commits[0]
+        
+        commit_metadata = {
+            "hash": head_commit.get("id"),
+            "message": head_commit.get("message"),
+            "author": head_commit.get("author", {}).get("name"),
+            "date": head_commit.get("timestamp")
+        }
+        
+        print(f"[Webhook] 🎣 Received push event for {repo_url} - Commit: {commit_metadata['hash'][:7]}")
+        
+        # 4. Trigger Auto-Redeploy (Background Task)
+        # We use the global orchestrator instance
+        background_tasks.add_task(
+            orchestrator.auto_deploy, 
+            repo_url=repo_url, 
+            commit_metadata=commit_metadata
+        )
+        
+        return {
+            "status": "processing", 
+            "repo": repo_url, 
+            "commit": commit_metadata["hash"],
+            "message": "Auto-deploy triggered in background"
+        }
+        
+    except Exception as e:
+        print(f"[Webhook] ❌ Error processing payload: {e}")
+        # Return 500 to signal GitHub to retry, or 200 to avoid retry loops if logic error
+        # FAANG practice: Return 200 for logic errors to stop retries, 500 for transient
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 async def monitor_deployments():
     """Background task to watch over deployments (FAANG Guardian Mode)"""

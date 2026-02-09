@@ -12,5 +12,19 @@
     "max_services": 1,
     "max_requests_per_day": 100,
     "max_memory_mb": 512
+  },
+  "user_1762621179925": {
+    "id": "user_1762621179925",
+    "email": "github-1762621179419@servergem.app",
+    "username": "github-1762621179419",
+    "display_name": "github-1762621179419",
+    "avatar_url": null,
+    "github_token": null,
+    "plan_tier": "free",
+    "created_at": "2026-02-07T03:22:56.693149Z",
+    "settings": {},
+    "max_services": 1,
+    "max_requests_per_day": 100,
+    "max_memory_mb": 512
   }
 }

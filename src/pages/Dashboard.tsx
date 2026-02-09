@@ -51,13 +51,18 @@ const Dashboard = () => {
   // [FAANG] Automated State Synchronization
   useEffect(() => {
     const unsubscribe = onMessage((message) => {
-      // [PERFORMANCE] Only full refresh on completion or status change
+      // [PERFORMANCE] Refresh on deployment lifecycle events
       // 'deployment_progress' is too frequent (~100/sec) and causes flickering
-      if (message.type === 'deployment_complete' || message.type === 'status_change') {
+      const triggerTypes = [
+        'deployment_complete',
+        'status_change',
+        'deployment_started'  // [FAANG] Optimistic UI: Show deploying card immediately
+      ];
+
+      if (triggerTypes.includes(message.type)) {
+        console.log('[Dashboard] 🔄 Refreshing deployments due to:', message.type);
         refresh();
       }
-      // Note: progress updates should be handled by individual components subscribing
-      // to the websocket context if they need granular progress bars
     });
 
     return () => unsubscribe();
@@ -84,7 +89,7 @@ const Dashboard = () => {
       case 'deploying': return 'Deploying';
       case 'building': return 'Building';
       case 'starting':
-      case 'pending': return 'Initializing...';
+      case 'pending': return 'Deploying...';
       case 'error':
       case 'failed': return 'Failed';
       case 'stopped': return 'Stopped';
@@ -401,7 +406,15 @@ const Dashboard = () => {
                       <p className="text-xs text-muted-foreground mb-1">Deployed</p>
                       <p className="text-sm font-medium flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {formatDate(deployment.created_at)}
+                        {deployment.status.toLowerCase() === 'live'
+                          ? formatDate(deployment.updated_at)
+                          : (
+                            <span className="text-yellow-500 flex items-center gap-1 animate-pulse">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Deploying...
+                            </span>
+                          )
+                        }
                       </p>
                     </div>
                     <div>

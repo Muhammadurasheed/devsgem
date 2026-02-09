@@ -1,119 +1,164 @@
-import httpx
-import re
-import asyncio
 import os
+import re
 import json
-import hashlib
+import httpx
+import asyncio
+from pathlib import Path
+from typing import Dict, Optional, List, Any
+from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
-from typing import Optional, List
-import logging
 
 class BrandingService:
     """
-    [SOVEREIGN BRANDING ENGINE]
-    Surgically extracts high-fidelity favicons and brand assets from live URLs.
-    [FAANG] Designed for high reliability, persistent disk-based caching, and bypasses CORS.
+    Sovereign Branding Engine (FAANG-Level)
+    Manages local assets and autonomous favicon scraping with multi-stage fallback.
     """
-    def __init__(self):
-        self.logger = logging.getLogger("BrandingService")
-        self.client = httpx.AsyncClient(
-            timeout=10.0, 
-            follow_redirects=True,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
-            }
-        )
-        self.cache_dir = os.path.join(os.getcwd(), "branding_assets")
-        self.manifest_path = os.path.join(self.cache_dir, "manifest.json")
-        os.makedirs(self.cache_dir, exist_ok=True)
+
+    def __init__(self, assets_dir: str, cache_dir: str = "branding_assets"):
+        self.assets_dir = Path(assets_dir)
+        self.cache_dir = Path(cache_dir)
+        self.manifest_path = self.cache_dir / "manifest.json"
+        
+        self.asset_index: Dict[str, Path] = {}
+        self.normalized_index: Dict[str, Path] = {}
+        self.favicon_cache: Dict[str, Dict] = {}
+        
+        # Ensure directories exist
+        self.cache_dir.mkdir(exist_ok=True)
+        
         self._load_manifest()
+        self._index_assets()
 
     def _load_manifest(self):
-        if os.path.exists(self.manifest_path):
+        """Load favicon cache from disk"""
+        if self.manifest_path.exists():
             try:
-                with open(self.manifest_path, 'r') as f:
-                    self._manifest = json.load(f)
-            except:
-                self._manifest = {}
-        else:
-            self._manifest = {}
+                with open(self.manifest_path, 'r', encoding='utf-8') as f:
+                    self.favicon_cache = json.load(f)
+                print(f"[BrandingService] Loaded {len(self.favicon_cache)} cached favicons.")
+            except Exception as e:
+                print(f"[BrandingService] Warning: Error loading manifest: {e}")
+                self.favicon_cache = {}
 
     def _save_manifest(self):
+        """Atomic manifest persistence"""
         try:
-            with open(self.manifest_path, 'w') as f:
-                json.dump(self._manifest, f)
+            temp_path = self.manifest_path.with_suffix('.tmp')
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                json.dump(self.favicon_cache, f, indent=2)
+            temp_path.replace(self.manifest_path)
         except Exception as e:
-            self.logger.error(f"[Branding] Failed to save manifest: {e}")
+            print(f"[BrandingService] Warning: Failed to save manifest: {e}")
+
+    def _index_assets(self):
+        """High-performance recursive indexing of local brand assets"""
+        if not self.assets_dir.exists():
+            print(f"[BrandingService] Warning: Assets directory not found: {self.assets_dir}")
+            return
+
+        print(f"[BrandingService] Indexing Sovereign Assets in {self.assets_dir}...")
+        count = 0
+        for path in self.assets_dir.rglob('*'):
+            if path.is_file() and path.suffix.lower() in ['.svg', '.png', '.jpg', '.jpeg', '.webp', '.ico']:
+                name_key = path.stem.lower()
+                self.asset_index[name_key] = path
+                
+                # Semantic normalization (e.g., "Node.js" -> "nodejs")
+                clean_key = re.sub(r'[^a-z0-9]', '', name_key)
+                if clean_key and clean_key not in self.normalized_index:
+                    self.normalized_index[clean_key] = path
+                count += 1
+        
+        print(f"[BrandingService] Indexed {count} sovereign assets.")
 
     async def get_favicon(self, url: str) -> Optional[str]:
         """
-        Extracts the best possible favicon URL for a given target.
+        [FAANG] Resilient Favicon Discovery
+        Traverses Cache -> HTML Scraping -> Root Fallback
         """
-        if not url:
-            return None
-            
-        if url in self._manifest:
-            return self._manifest[url].get('icon_url')
+        if not url: return None
+        
+        # Normalize URL to strip path for caching key
+        parsed = urlparse(url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        
+        # 1. Check Cache
+        if base_url in self.favicon_cache:
+            return self.favicon_cache[base_url].get("icon_url")
 
+        # 2. Heuristic Scraping
         try:
-            self.logger.info(f"[Branding] 🔍 Extracting favicon for: {url}")
-            response = await self.client.get(url)
-            html = response.text
-            
-            icon_patterns = [
-                r'<link[^>]*rel=["\'](?:apple-touch-icon|apple-touch-icon-precomposed)["\'][^>]*href=["\']([^"\']+)["\']',
-                r'<link[^>]*href=["\']([^"\']+)["\'][^>]*rel=["\'](?:apple-touch-icon|apple-touch-icon-precomposed)["\']',
-                r'<link[^>]*rel=["\']icon["\'][^>]*href=["\']([^"\']+)["\']',
-                r'<link[^>]*href=["\']([^"\']+)["\'][^>]*rel=["\']icon["\']',
-                r'<link[^>]*rel=["\']shortcut icon["\'][^>]*href=["\']([^"\']+)["\']',
-                r'<link[^>]*href=["\']([^"\']+)["\'][^>]*rel=["\']shortcut icon["\']'
-            ]
-            
-            best_icon = None
-            for pattern in icon_patterns:
-                match = re.search(pattern, html, re.IGNORECASE)
-                if match:
-                    icon_path = match.group(1)
-                    best_icon = urljoin(url, icon_path)
-                    break
-            
-            if not best_icon:
-                parsed_url = urlparse(url)
-                best_icon = f"{parsed_url.scheme}://{parsed_url.netloc}/favicon.ico"
+            async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
+                response = await client.get(url)
+                if response.status_code != 200:
+                    return f"{base_url}/favicon.ico" # Final fallback
 
-            self.logger.info(f"[Branding] ✅ Found {url} -> {best_icon}")
-            self._manifest[url] = {'icon_url': best_icon, 'timestamp': str(asyncio.get_event_loop().time())}
-            self._save_manifest()
-            return best_icon
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # Heuristic 1: <link rel="icon"> or <link rel="shortcut icon">
+                icon_link = (
+                    soup.find("link", rel=lambda x: x and 'icon' in x.lower()) or
+                    soup.find("link", rel="apple-touch-icon")
+                )
+                
+                if icon_link and icon_link.get('href'):
+                    icon_url = urljoin(url, icon_link['href'])
+                    
+                    # Store in cache
+                    self.favicon_cache[base_url] = {
+                        "icon_url": icon_url,
+                        "timestamp": asyncio.get_event_loop().time()
+                    }
+                    self._save_manifest()
+                    return icon_url
+
+                # Heuristic 2: Direct lookup at root
+                root_favicon = f"{base_url}/favicon.ico"
+                self.favicon_cache[base_url] = {
+                    "icon_url": root_favicon,
+                    "timestamp": asyncio.get_event_loop().time()
+                }
+                self._save_manifest()
+                return root_favicon
 
         except Exception as e:
-            self.logger.warning(f"[Branding] ❌ Failed {url}: {e}")
-            parsed_url = urlparse(url)
-            return f"https://www.google.com/s2/favicons?domain={parsed_url.netloc}&sz=128"
+            print(f"[BrandingService] Warning: Scraping failed for {url}: {e}")
+            return f"{base_url}/favicon.ico"
 
     async def proxy_icon(self, icon_url: str) -> Optional[bytes]:
-        """
-        Proxies icon bytes with persistent disk caching.
-        """
-        icon_hash = hashlib.md5(icon_url.encode()).hexdigest()
-        ext = os.path.splitext(urlparse(icon_url).path)[1] or ".ico"
-        local_path = os.path.join(self.cache_dir, f"{icon_hash}{ext}")
-
-        if os.path.exists(local_path):
-            with open(local_path, "rb") as f:
-                return f.read()
-
+        """Proxy remote bytes to bypass CORS with timeout protection"""
         try:
-            response = await self.client.get(icon_url)
-            if response.status_code == 200:
-                with open(local_path, "wb") as f:
-                    f.write(response.content)
-                return response.content
-            return None
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(icon_url)
+                if response.status_code == 200:
+                    return response.content
         except Exception as e:
-            self.logger.error(f"[Branding] ❌ Proxy Failed {icon_url}: {e}")
-            return None
+            print(f"[BrandingService] Warning: Proxy failure for {icon_url}: {e}")
+        return None
 
-# Singleton instance
-branding_service = BrandingService()
+    def match_asset(self, query: str) -> Optional[Path]:
+        """Fuzzy match query to local assets index"""
+        if not query: return None
+        q = query.lower().strip()
+        
+        # Exact match
+        if q in self.asset_index: return self.asset_index[q]
+        
+        # Cleaned match
+        q_clean = re.sub(r'[^a-z0-9]', '', q)
+        if q_clean in self.normalized_index: return self.normalized_index[q_clean]
+        
+        # Alias matching
+        aliases = {
+            'c#': 'c#', 'csharp': 'c#',
+            'c++': 'c++', 'cpp': 'c++',
+            'golang': 'go',
+            'express': 'nodejs',
+            'nest': 'nestjs',
+            'react': 'react',
+            'vue': 'vuejs'
+        }
+        if q in aliases and aliases[q] in self.asset_index:
+            return self.asset_index[aliases[q]]
+            
+        return None

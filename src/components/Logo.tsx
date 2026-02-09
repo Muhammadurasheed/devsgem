@@ -1,3 +1,6 @@
+import logo from '@/assets/devgemlogo2.png';
+import { cn } from '@/lib/utils';
+
 interface LogoProps {
   className?: string;
   size?: number;
@@ -5,92 +8,32 @@ interface LogoProps {
 
 const Logo = ({ className = "", size = 200 }: LogoProps) => {
   return (
-    <svg 
-      viewBox="0 0 200 200" 
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      className={className}
+    <div
+      className={cn("relative group transition-all duration-500", className)}
+      style={{ width: size, height: size }}
     >
-      <defs>
-        <linearGradient id="gemGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: "#3b82f6", stopOpacity: 1 }} />
-          <stop offset="50%" style={{ stopColor: "#8b5cf6", stopOpacity: 1 }} />
-          <stop offset="100%" style={{ stopColor: "#06b6d4", stopOpacity: 1 }} />
-        </linearGradient>
+      {/* [APPLE] Ambient Glow - Soft, persistent background illumination */}
+      <div className="absolute inset-0 bg-blue-500/10 blur-2xl rounded-full opacity-40 group-hover:opacity-70 transition-opacity duration-1000" />
 
-        <radialGradient id="glowGradient">
-          <stop offset="0%" style={{ stopColor: "#8b5cf6", stopOpacity: 0.6 }} />
-          <stop offset="100%" style={{ stopColor: "#8b5cf6", stopOpacity: 0 }} />
-        </radialGradient>
+      {/* [GOOGLE] High-Perf Image Container */}
+      <img
+        src={logo}
+        alt="DevGem Logo"
+        className="w-full h-full object-contain relative z-10 
+                   drop-shadow-[0_8px_24px_rgba(0,0,0,0.5)] 
+                   group-hover:scale-105 group-hover:-translate-y-1 
+                   transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]"
+      />
 
-        <filter id="shadow">
-          <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
-          <feOffset dx="0" dy="2" result="offsetblur"/>
-          <feComponentTransfer>
-            <feFuncA type="linear" slope="0.3"/>
-          </feComponentTransfer>
-          <feMerge>
-            <feMergeNode/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
-        </filter>
-
-        <linearGradient id="shineGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: "#ffffff", stopOpacity: 0.4 }} />
-          <stop offset="50%" style={{ stopColor: "#ffffff", stopOpacity: 0.1 }} />
-          <stop offset="100%" style={{ stopColor: "#ffffff", stopOpacity: 0 }} />
-        </linearGradient>
-      </defs>
-
-      <circle cx="100" cy="100" r="80" fill="url(#glowGradient)" opacity="0.5">
-        <animate attributeName="r" values="70;85;70" dur="3s" repeatCount="indefinite"/>
-      </circle>
-
-      <g filter="url(#shadow)">
-        <polygon points="100,140 60,100 80,80" fill="url(#gemGradient)" opacity="0.7"/>
-        <polygon points="100,140 140,100 120,80" fill="url(#gemGradient)" opacity="0.7"/>
-        <polygon points="60,100 80,80 100,60" fill="url(#gemGradient)" opacity="0.85"/>
-        <polygon points="140,100 120,80 100,60" fill="url(#gemGradient)" opacity="0.85"/>
-        <polygon points="80,80 100,60 120,80" fill="url(#gemGradient)"/>
-        <polygon points="100,60 80,80 100,100 120,80" fill="url(#gemGradient)"/>
-        <polygon points="60,100 80,80 100,100" fill="url(#gemGradient)" opacity="0.9"/>
-        <polygon points="140,100 120,80 100,100" fill="url(#gemGradient)" opacity="0.9"/>
-        <polygon points="85,70 100,60 115,70 100,80" fill="url(#shineGradient)"/>
-      </g>
-
-      <g opacity="0.8">
-        <path d="M 55 105 L 65 100" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" fill="none">
-          <animate attributeName="opacity" values="0.5;1;0.5" dur="2s" begin="1s" repeatCount="indefinite"/>
-        </path>
-        <polygon points="65,100 62,102 62,98" fill="#06b6d4">
-          <animate attributeName="opacity" values="0.5;1;0.5" dur="2s" begin="1s" repeatCount="indefinite"/>
-        </polygon>
-
-        <path d="M 145 105 L 135 100" stroke="#8b5cf6" strokeWidth="2" strokeLinecap="round" fill="none">
-          <animate attributeName="opacity" values="0.5;1;0.5" dur="2s" begin="1.5s" repeatCount="indefinite"/>
-        </path>
-        <polygon points="135,100 138,98 138,102" fill="#8b5cf6">
-          <animate attributeName="opacity" values="0.5;1;0.5" dur="2s" begin="1.5s" repeatCount="indefinite"/>
-        </polygon>
-      </g>
-
-      <g>
-        <circle cx="130" cy="50" r="2" fill="#ffffff" opacity="0.9">
-          <animate attributeName="opacity" values="0;1;0" dur="1.5s" repeatCount="indefinite"/>
-        </circle>
-        <circle cx="70" cy="65" r="1.5" fill="#ffffff" opacity="0.9">
-          <animate attributeName="opacity" values="0;1;0" dur="1.5s" begin="0.5s" repeatCount="indefinite"/>
-        </circle>
-        <circle cx="145" cy="85" r="2" fill="#06b6d4" opacity="0.9">
-          <animate attributeName="opacity" values="0;1;0" dur="1.5s" begin="1s" repeatCount="indefinite"/>
-        </circle>
-        <circle cx="55" cy="85" r="1.5" fill="#3b82f6" opacity="0.9">
-          <animate attributeName="opacity" values="0;1;0" dur="1.5s" begin="1.2s" repeatCount="indefinite"/>
-        </circle>
-      </g>
-    </svg>
+      {/* glassmorphism flare for that Apple Grade feel */}
+      <div className="absolute -top-[10%] -left-[10%] w-[120%] h-[120%] 
+                      bg-gradient-to-br from-white/10 to-transparent 
+                      pointer-events-none rounded-full blur-xl opacity-0 
+                      group-hover:opacity-30 transition-opacity duration-700" />
+    </div>
   );
 };
 
 export default Logo;
+
+

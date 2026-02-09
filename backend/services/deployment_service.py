@@ -2,12 +2,12 @@ import json
 import os
 import shutil
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 from uuid import uuid4
 
-from models import Deployment
+from models import Deployment, DeploymentStatus
 from utils.progress_notifier import DeploymentStages, ProgressNotifier
 from utils.atomic_storage import AtomicJsonStore  # ✅ Google-Grade Persistence
 
@@ -23,6 +23,13 @@ class DeploymentService:
         self.store = AtomicJsonStore(storage_path, default_data={})
         # Load initial state
         self._deployments: Dict[str, Deployment] = self._load_deployments()
+        # [FAANG] Real-time Broadcaster (Injected)
+        self.broadcaster = None
+        
+    def set_broadcaster(self, broadcaster_func):
+        """[FAANG] Dependency Injection for WebSocket Broadcasting"""
+        print("[DeploymentService] 📡 Broadcaster injected for real-time updates")
+        self.broadcaster = broadcaster_func
         
     def _load_deployments(self) -> Dict[str, Deployment]:
         """Load deployments using atomic store"""
@@ -56,7 +63,9 @@ class DeploymentService:
                               user_id: str = "user_default",
                               framework: Optional[str] = None,
                               language: Optional[str] = None,
-                              deployment_id: Optional[str] = None) -> Deployment:
+                              root_dir: Optional[str] = None,
+                              deployment_id: Optional[str] = None,
+                              commit_metadata: Optional[Dict[str, str]] = None) -> Deployment: # [FAANG] Git History
         """Create a new deployment record [IDEMPOTENT]"""
         from models import DeploymentStatus # Import locally to avoid circulars if any
         
@@ -68,26 +77,67 @@ class DeploymentService:
         if deployment_id and deployment_id in self._deployments:
             return self._deployments[deployment_id]
             
-        # 2. Check by service_name per user (Unique constraint)
-        for d in self._deployments.values():
-            if d.service_name == service_name and d.user_id == user_id:
-                # [SOVEREIGN FIX] Update existing record instead of creating new one
-                d.repo_url = repo_url
-                d.updated_at = datetime.now().isoformat()
-                self._save_deployments()
-                return d
+        # 2. [FAANG] Collision Resolution: Generate unique suffix instead of overwriting
+        # This ensures re-deploying the same repo creates a NEW dashboard entry
+        # [FAANG] Idempotency Check: Return existing if found
+        if deployment_id and deployment_id in self._deployments:
+            print(f"[DeploymentService] [IDEMPOTENT] Returning existing deployment: {deployment_id}")
+            # Update fields that might have changed
+            existing_dep = self._deployments[deployment_id]
+            if env_vars:
+                existing_dep.env_vars.update(env_vars)
+            
+            # [FAANG] Update Commit Metadata on Idempotent Re-deploy
+            if commit_metadata:
+                print(f"[DeploymentService] Updating commit info for {deployment_id}")
+                existing_dep.commit_hash = commit_metadata.get('hash')
+                existing_dep.commit_message = commit_metadata.get('message')
+                existing_dep.commit_author = commit_metadata.get('author')
+                existing_dep.commit_date = commit_metadata.get('date') or datetime.utcnow().isoformat() + "Z"
+            
+            existing_dep.updated_at = datetime.utcnow().isoformat() + "Z"
+            self._save_deployments() # Ensure we save the updates!
+            return existing_dep
+
+        # Name Collision Check & Dedup
+        base_service_name = service_name
+        
+        # Check if we already have a running/recent deployment for this service/user
+        # to avoid "confirmit-ai-agent-server-1", "-2" for the SAME session
+        for dep in self._deployments.values():
+            if dep.user_id == user_id and dep.service_name == service_name:
+                # Strong heuristic: If created < 5 mins ago, assume it's the same intent
+                # unless status is FAILED/STOPPED
+                created_dt = datetime.fromisoformat(dep.created_at.replace('Z', '+00:00'))
+                if (datetime.utcnow().replace(tzinfo=timezone.utc) - created_dt).total_seconds() < 300:
+                     if dep.status not in [DeploymentStatus.FAILED, DeploymentStatus.STOPPED]:
+                         print(f"[DeploymentService] [DEDUP] Reusing recent active deployment: {dep.id}")
+                         return dep
+
+        # Logic for unique name generation (legacy fallback)
+        suffix_counter = 1
+        while any(d.service_name == service_name and d.user_id == user_id for d in self._deployments.values()):
+            service_name = f"{base_service_name}-{suffix_counter}"
+            suffix_counter += 1
+            if suffix_counter > 99:
+                service_name = f"{base_service_name}-{uuid4().hex[:6]}"
+                break
+        
+        if service_name != base_service_name:
+            print(f"[DeploymentService] [COLLISION] Generated unique name: {service_name} (from {base_service_name})")
 
         deployment = Deployment(
             id=deployment_id or str(uuid4()),
             user_id=user_id,
             service_name=service_name,
             repo_url=repo_url,
-            status=DeploymentStatus.PENDING, # Use Enum
-            url="", # Initial empty URL
+            status=DeploymentStatus.PENDING,
+            url="",
             region=region,
             env_vars=env_vars or {},
             framework=framework,
             language=language,
+            root_dir=root_dir, # [FAANG] Monorepo Support
             stages=[
                 {"id": stage, "label": stage.replace("_", " ").title(), "status": "waiting"}
                 for stage in [
@@ -99,7 +149,12 @@ class DeploymentService:
                     DeploymentStages.CONTAINER_BUILD,
                     DeploymentStages.CLOUD_DEPLOYMENT
                 ]
-            ]
+            ],
+            # [FAANG] Git Metadata
+            commit_hash=commit_metadata.get('hash') if commit_metadata else None,
+            commit_message=commit_metadata.get('message') if commit_metadata else None,
+            commit_author=commit_metadata.get('author') if commit_metadata else None,
+            commit_date=commit_metadata.get('date') if commit_metadata else None
         )
         
         # [HEALING] Flush any buffered logs for this deployment ID
@@ -110,11 +165,41 @@ class DeploymentService:
 
         self._deployments[deployment.id] = deployment
         self._save_deployments()
+        
+        # [FAANG] Real-time Sync: Broadcast new deployment immediately
+        if self.broadcaster:
+            import asyncio
+            asyncio.create_task(self.broadcaster({
+                "type": "deployment_started",
+                "deployment": deployment.to_dict()
+            }))
+            
         return deployment
 
     def get_deployment(self, deployment_id: str) -> Optional[Deployment]:
         """Get deployment by ID"""
         return self._deployments.get(deployment_id)
+
+    def get_deployment_by_repo_url(self, repo_url: str) -> Optional[Deployment]:
+        """
+        [FAANG] Smart Lookup for Webhooks
+        Finds the most recent active deployment for a given repository URL.
+        Handles variations in URL format (with/without .git, trailing slashes).
+        """
+        normalized_target = repo_url.rstrip('/').replace('.git', '').lower()
+        
+        candidates = []
+        for dep in self._deployments.values():
+            dep_repo = dep.repo_url.rstrip('/').replace('.git', '').lower()
+            if dep_repo == normalized_target:
+                candidates.append(dep)
+        
+        if not candidates:
+            return None
+            
+        # Return the most recently updated one
+        candidates.sort(key=lambda x: x.updated_at or "", reverse=True)
+        return candidates[0]
 
     async def list_deployments(self, user_id: str) -> List[Deployment]:
         """Get all deployments for a user [HEALED + AUTO-MIGRATION]"""
@@ -158,6 +243,32 @@ class DeploymentService:
         # 2. Return strict list of values
         result_list = list(matches.values())
         
+        # [FAANG] Metadata Self-Healing for legacy records
+        for dep in result_list:
+            if not dep.framework or not dep.language:
+                name = dep.service_name.lower()
+                # Guessing heuristics
+                if 'fastapi' in name or 'confirmit' in name or 'ai-agent' in name:
+                    dep.framework, dep.language = 'fastapi', 'python'
+                elif 'flask' in name:
+                    dep.framework, dep.language = 'flask', 'python'
+                elif 'django' in name:
+                    dep.framework, dep.language = 'django', 'python'
+                elif 'nest' in name:
+                    dep.framework, dep.language = 'nestjs', 'typescript'
+                elif 'react' in name:
+                    dep.framework, dep.language = 'react', 'javascript'
+                elif 'angular' in name:
+                    dep.framework, dep.language = 'angular', 'typescript'
+                elif 'vue' in name:
+                    dep.framework, dep.language = 'vuejs', 'javascript'
+                elif 'python' in name:
+                    dep.language = 'python'
+                elif 'node' in name:
+                    dep.language = 'javascript'
+                elif 'go' in name:
+                    dep.language = 'go'
+
         # [FAANG] Deterministic Sort
         # Sort by updated_at (descending) to show most recent activity first
         result_list.sort(key=lambda x: x.updated_at or "", reverse=True)
@@ -178,21 +289,103 @@ class DeploymentService:
             return True
         return False
 
-    async def update_deployment_status(self, deployment_id: str, status: str, error_message: Optional[str] = None):
+    async def update_deployment_status(self, deployment_id: str, status, error_message: Optional[str] = None):
         """Update deployment status [HEALED - STRICT ISO]"""
+        # [FAANG] Type Normalization: Handle both Enum and string status
+        # Logic uses string (for safe comparisons), Model uses Enum (for strict typing)
+        status_str = status.value if hasattr(status, 'value') else str(status)
+        
+        status_enum = status
+        if isinstance(status, str):
+            try:
+                # Attempt to convert string to Enum for the model
+                # This handles case where internal logic passes "failed" string instead of Enum
+                status_enum = DeploymentStatus(status)
+            except ValueError:
+                print(f"[DeploymentService] Warning: Unknown status string '{status}' passed. Keeping as string/enum mix.") 
+                # If we can't convert, we might have a custom status or error state
+                # Check known safe fallbacks
+                if status == "failed": status_enum = DeploymentStatus.FAILED
+                elif status == "live": status_enum = DeploymentStatus.LIVE
+                elif status == "pending": status_enum = DeploymentStatus.PENDING
+        
         if deployment_id in self._deployments:
             dep = self._deployments[deployment_id]
-            dep.status = status
+            dep.status = status_enum  # ✅ Always assign Enum (or best effort)
+            
             if error_message:
                 dep.error_message = error_message
             dep.updated_at = datetime.utcnow().isoformat() + "Z"
-            if status == "live":
+            
+            if status_str == "live":
                 dep.last_deployed = datetime.utcnow().isoformat() + "Z"
                 # [FAANG] State Reconciliation: Mark all valid stages as success
                 for stage in dep.stages:
                     if stage.get('status') != 'error':
                         stage['status'] = 'success'
             self._save_deployments()
+            
+            # [FAANG] Real-time Sync: Only broadcast for TERMINAL states to prevent premature "Live" in dashboard
+            if self.broadcaster and status_str in ["live", "failed"]:
+                import asyncio
+                event_type = "deployment_complete" if status_str == "live" else "status_change"
+                
+                # [FAANG] Safe Broadcast: Wrapped to catch silent failures
+                async def safe_broadcast():
+                    try:
+                        # Re-calculate payload here to ensure it uses the latest dep state
+                        # dep.to_dict() will now work because dep.status is a valid Enum
+                        payload = {"type": event_type, "deployment": dep.to_dict()}
+                        await self.broadcaster(payload)
+                        print(f"[DeploymentService] [BROADCAST] {event_type} for {deployment_id} - SUCCESS")
+                    except Exception as e:
+                        print(f"[DeploymentService] [BROADCAST] FAILED for {deployment_id}: {e}")
+                        import traceback
+                        traceback.print_exc()
+                
+                asyncio.create_task(safe_broadcast())
+
+
+    async def update_deployment_stage_status(self, deployment_id: str, stage_id: str, status: str):
+        """Update specific stage status [HEALED - STRICT ISO]"""
+        if deployment_id in self._deployments:
+            dep = self._deployments[deployment_id]
+            dep.updated_at = datetime.utcnow().isoformat() + "Z"
+            
+            # Find and update specific stage
+            stage_found = False
+            for stage in dep.stages:
+                if stage.get('id') == stage_id:
+                    stage['status'] = status
+                    stage_found = True
+                    break
+            
+            if not stage_found:
+                # Add stage if not found (robustness)
+                dep.stages.append({
+                    "id": stage_id,
+                    "label": stage_id.replace("_", " ").title(),
+                    "status": status
+                })
+            
+            self._save_deployments()
+            
+            # [FAANG] Real-time Sync: Broadcast stage update
+            # [FAANG] Real-time Sync: Broadcast stage update
+            if self.broadcaster:
+                import asyncio
+                # [FAANG] Safe Broadcast Wrapper
+                async def safe_stage_broadcast():
+                    try:
+                        await self.broadcaster({
+                            "type": "status_change",
+                            "deployment": dep.to_dict()
+                        })
+                        print(f"[DeploymentService] [BROADCAST] Stage update {stage_id}={status} for {deployment_id}")
+                    except Exception as e:
+                         print(f"[DeploymentService] [BROADCAST] Stage update FAILED: {e}")
+                
+                asyncio.create_task(safe_stage_broadcast())
 
     async def update_url(self, deployment_id: str, url: str):
         """Update deployment URL [HEALED - STRICT ISO]"""
@@ -201,6 +394,23 @@ class DeploymentService:
             dep.url = url
             dep.updated_at = datetime.utcnow().isoformat() + "Z"
             self._save_deployments()
+            
+            # [FAANG] Real-time Sync: Broadcast URL update
+            # [FAANG] Real-time Sync: Broadcast URL update
+            if self.broadcaster and url:
+                import asyncio
+                # [FAANG] Safe Broadcast Wrapper
+                async def safe_url_broadcast():
+                    try:
+                        await self.broadcaster({
+                            "type": "deployment_complete",
+                            "deployment": dep.to_dict()
+                        })
+                        print(f"[DeploymentService] [BROADCAST] deployment_complete (URL set) for {deployment_id}")
+                    except Exception as e:
+                        print(f"[DeploymentService] [BROADCAST] URL update FAILED: {e}")
+                
+                asyncio.create_task(safe_url_broadcast())
 
     async def update_framework_info(self, deployment_id: str, framework: str, language: str):
         """Update deployment framework info [FAANG]"""
@@ -254,6 +464,27 @@ class DeploymentService:
     def flush_logs(self, deployment_id: str):
         """Force a persistence sync for logs"""
         self._save_deployments()
+
+    def finalize_build_logs(self, deployment_id: str, final_log: str = None):
+        """
+        [FAANG] Finalize build logs at build completion.
+        Flushes any buffered logs and forces immediate persistence.
+        """
+        # Merge any buffered logs into the deployment
+        if hasattr(self, '_log_buffer') and deployment_id in self._log_buffer:
+            if deployment_id in self._deployments:
+                self._deployments[deployment_id].build_logs.extend(self._log_buffer[deployment_id])
+            del self._log_buffer[deployment_id]
+        
+        # Add final log line if provided
+        if final_log and deployment_id in self._deployments:
+            self._deployments[deployment_id].build_logs.append(final_log)
+        
+        # Force persistence
+        self._save_deployments()
+        # [FIX] Safe log count without instantiating Deployment fallback
+        log_count = len(self._deployments[deployment_id].build_logs) if deployment_id in self._deployments else 0
+        print(f"[DeploymentService] [BUILD] Finalized logs for {deployment_id}: {log_count} lines")
 
     def update_deployment_safe(self, deployment: Deployment):
         """Thread-safe update from background agents"""
@@ -363,6 +594,38 @@ class DeploymentService:
                 "volumeTrend": "up"
             }
         }
+
+    async def update_deployment_env_vars(self, deployment_id: str, env_vars: Dict[str, str]) -> Deployment:
+        """
+        [FAANG] Atomically update environment variables for a deployment record
+        """
+        try:
+            print(f"[DeploymentService] Updating env vars for {deployment_id}")
+            deployments = self._load_deployments()
+            
+            if deployment_id not in deployments:
+                raise ValueError(f"Deployment {deployment_id} not found")
+            
+            # Update record
+            dep = self._deployments[deployment_id]
+            dep.env_vars = env_vars
+            dep.updated_at = datetime.now().isoformat()
+            
+            # Save atomic
+            self._save_deployments()
+            
+            # Broadcast update
+            if self.broadcaster:
+                await self.broadcaster({
+                    "type": "deployment_update",
+                    "deployment": dep.to_dict()
+                })
+                
+            return dep
+            
+        except Exception as e:
+            print(f"[DeploymentService] FATAL: Failed to update env vars: {e}")
+            raise e
 
 # ✅ SINGLETON INSTANCE
 deployment_service = DeploymentService()

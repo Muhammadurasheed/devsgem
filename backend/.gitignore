@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Database
+devgem.db
+devgem.db-journal
+
+# Transitory data
+data/
+previews/
+
+# IDEs
+.vscode/
+.idea/
+
+# Local logs
+*.log
+backendlog.md

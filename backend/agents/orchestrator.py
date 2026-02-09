@@ -9,6 +9,7 @@ FAANG-Level Production Implementation
 - Multi-region fallback with distributed rate limiting
 """
 import asyncio
+# SEARCH_ANCHOR
 import time
 from typing import Dict, List, Optional, Any, Callable, Tuple
 import vertexai
@@ -27,6 +28,7 @@ from utils.rate_limiter import get_rate_limiter, Priority, acquire_with_fallback
 from utils.progress_helpers import send_and_flush
 from agents.gemini_brain import GeminiBrainAgent  # ✅ GEMINI BRAIN INTEGRATION
 from services.deployment_service import deployment_service # [PILLAR 1] Persistence Ledger
+import services.deployment_service as ds_safe # [FAANG] Safe Alias for Scope Resolution
 from services.preview_service import preview_service # [FAANG] Automated Screenshots
 from models import DeploymentStatus # [FAANG] Type Safety
 
@@ -187,6 +189,41 @@ class OrchestratorAgent:
             print("[WARNING] Running in mock mode - services not available")
             # Create mock services for testing
             self._init_mock_services()
+
+    def _update_deployment_stage(self, stage_id: str, label: str = None, status: str = 'in-progress', progress: int = None, message: str = None, logs: List[str] = None):
+        """
+        [FAANG] State Persistence Bridge
+        Updates the deployment record in the database with the current stage status.
+        Found missing during rigorous 3-process debugging.
+        """
+        try:
+            # Only proceed if we have a valid deployment ID context
+            deployment_id = self.project_context.get('deployment_id')
+            if not deployment_id:
+                return
+
+            # Import safely to avoid circular dependency
+            from services.deployment_service import deployment_service
+            import asyncio
+            
+            # Fire and forget - don't block the agent loop
+            # [FAANG] Use create_task to ensure non-blocking UI
+            asyncio.create_task(deployment_service.update_deployment_stage_status(
+                deployment_id=deployment_id,
+                stage_id=stage_id,
+                status=status
+            ))
+            
+            if logs:
+                 # Also persist ANY logs associated with this stage update
+                 if isinstance(logs, list):
+                     for line in logs:
+                         deployment_service.add_build_log(deployment_id, str(line))
+                 else:
+                     deployment_service.add_build_log(deployment_id, str(logs))
+                     
+        except Exception as e:
+            print(f"[Orchestrator] [WARNING] Failed to persist stage update: {e}")
     
     def _init_mock_services(self):
         """Initialize mock services for testing when real services unavailable"""
@@ -232,6 +269,10 @@ class OrchestratorAgent:
                             'branch': {
                                 'type': 'string',
                                 'description': 'Branch name to clone and analyze (default: main)'
+                            },
+                            'root_dir': {
+                                'type': 'string',
+                                'description': 'Optional subdirectory within the repo to analyze (Monorepo Support). e.g., "backend", "apps/web"'
                             }
                         },
                         'required': ['repo_url']
@@ -250,6 +291,10 @@ class OrchestratorAgent:
                             'service_name': {
                                 'type': 'string',
                                 'description': 'Name for Cloud Run service. Auto-generate from repo name (e.g., "ihealth-backend" from "ihealth_backend.git"). Use lowercase and hyphens.'
+                            },
+                            'root_dir': {
+                                'type': 'string',
+                                'description': 'Optional subdirectory to deploy (Monorepo Support). Default to what was used in analysis.'
                             },
                             'env_vars': {
                                 'type': 'object',
@@ -528,6 +573,44 @@ class OrchestratorAgent:
             f"or wait a few minutes and try again."
         )
     
+    async def auto_deploy(self, repo_url: str, commit_metadata: Dict[str, str]):
+        """
+        [FAANG] Smart Auto-Deploy Trigger
+        Called by Webhooks to update existing deployments with new code.
+        """
+        print(f"[Orchestrator] 🔄 Auto-Deploy triggered for {repo_url}")
+        
+        # 1. Find the target deployment
+        existing_dep = deployment_service.get_deployment_by_repo_url(repo_url)
+        
+        if not existing_dep:
+            print(f"[Orchestrator] No active deployment found for {repo_url}. Skipping auto-deploy.")
+            return {
+                "success": False, 
+                "message": "No active deployment found for this repository."
+            }
+            
+        print(f"[Orchestrator] Found target deployment: {existing_dep.service_name} ({existing_dep.id})")
+        
+        # 2. Trigger Redeploy
+        # We reuse _direct_deploy but with the existing ID to ensure UPDATE semantics
+        try:
+            # Notify start (optional, maybe via websocket logic elsewhere)
+            
+            result = await self._direct_deploy(
+                repo_url=repo_url,
+                service_name=existing_dep.service_name, # Reuse name
+                deployment_id=existing_dep.id, # Force update
+                commit_metadata=commit_metadata,
+                root_dir=existing_dep.root_dir or ''
+            )
+            
+            return result
+            
+        except Exception as e:
+            print(f"[Orchestrator] Auto-deploy failed: {e}")
+            return {"success": False, "message": str(e)}
+
     async def _sanitize_project_for_build(self, project_path: str, progress_notifier: Optional[ProgressNotifier] = None):
         """
         [FAANG] Pre-build Sanitization
@@ -579,7 +662,9 @@ class OrchestratorAgent:
         safe_send: Optional[Callable] = None,
         session_id: str = None,
         deployment_id: Optional[str] = None, # [FAANG] Pass-through authoritative ID
-        abort_event: Optional[asyncio.Event] = None # [FAANG] Emergency Abort Control
+        abort_event: Optional[asyncio.Event] = None, # [FAANG] Emergency Abort Control
+        root_dir: str = '', # [FAANG] Monorepo Support
+        commit_metadata: Optional[Dict[str, str]] = None # [FAANG] Git History
     ) -> Dict[str, Any]:
         """
         Logic for direct deployment when intent is confirmed.
@@ -659,9 +744,32 @@ class OrchestratorAgent:
             service_name=service_name,
             repo_url=repo_url or "local-upload",
             region=self.gcloud_service.region if self.gcloud_service else 'us-central1',
-            env_vars=explicit_env_vars,
-            deployment_id=deployment_id # [FAANG] Use authoritative ID
+            env_vars=explicit_env_vars or self.project_context.get('env_vars'), # [FAANG] Context Fallback
+            root_dir=root_dir, # [FAANG] Monorepo Support
+            deployment_id=deployment_id, # [FAANG] Use authoritative ID
+            commit_metadata=commit_metadata # [FAANG] Git History
         )
+
+        # [FAANG] SECRET SYNC: Immediately push env vars to GSM
+        # This ensures Env Manager works during deployment
+        try:
+             from services.secret_sync_service import secret_sync_service
+             # Inject our gcloud service instance (Singleton needs context)
+             if self.gcloud_service:
+                 secret_sync_service.set_gcloud_service(self.gcloud_service)
+             
+             env_to_sync = explicit_env_vars or self.project_context.get('env_vars') or {}
+             if env_to_sync:
+                 print(f"[Orchestrator] 🔐 Syncing {len(env_to_sync)} secrets to GSM for {deployment_record.id}")
+                 await secret_sync_service.save_to_secret_manager(
+                     deployment_id=deployment_record.id,
+                     user_id=user_id,
+                     env_vars=env_to_sync,
+                     repo_url=repo_url
+                 )
+        except Exception as sec_err:
+             print(f"[Orchestrator] [WARNING] Secret sync failed: {sec_err}")
+
         deployment_id = deployment_record.id
         self.active_deployment = deployment_record.to_dict() # Cache in memory
         
@@ -671,26 +779,41 @@ class OrchestratorAgent:
         # [PILLAR 1] Hook: Wrap progress callback to also update persistence layer
         original_progress_callback = progress_callback
         
+        # [FAANG] Fix: Capture deployment_service via safe alias to avoid UnboundLocalError
+        # Also added robust log persistence
         async def persistence_wrapper(data: Dict):
             # [FAANG] Robustness: Protected callback execution
             # Ensure UI pulse is prioritized over DB persistence
             
             # 1. Update Persistent DB (Non-blocking for UI)
-            if data.get('status') in ['success', 'error', 'live', 'failed']:
+            if data.get('status') in ['success', 'error', 'live', 'failed'] or data.get('details') or data.get('log_excerpt'):
                 try:
-                    status_val = data.get('status')
-                    if status_val == 'success' or status_val == 'live':
-                        db_status = DeploymentStatus.LIVE
-                    elif status_val == 'error' or status_val == 'failed':
-                        db_status = DeploymentStatus.FAILED
-                    else:
-                        db_status = DeploymentStatus.DEPLOYING if status_val == 'in-progress' else DeploymentStatus.BUILDING
+                    # [FAANG] Log Persistence: Capture build logs
+                    # GCloudService sends logs in 'details' or 'log_excerpt'
+                    log_content = data.get('details') or data.get('log_excerpt') or data.get('logs')
                     
-                    await deployment_service.update_deployment_status(
-                        deployment_id=deployment_id,
-                        status=db_status,
-                        error_message=data.get('error') or data.get('message') if db_status == DeploymentStatus.FAILED else None
-                    )
+                    if log_content:
+                        # Handle both list of lines and raw string
+                        if isinstance(log_content, list):
+                            for line in log_content:
+                                deployment_service.add_build_log(deployment_id, str(line))
+                        else:
+                            deployment_service.add_build_log(deployment_id, str(log_content))
+
+                    status_val = data.get('status')
+                    if status_val in ['success', 'error', 'live', 'failed']:
+                        if status_val == 'success' or status_val == 'live':
+                            db_status = DeploymentStatus.LIVE
+                        elif status_val == 'error' or status_val == 'failed':
+                            db_status = DeploymentStatus.FAILED
+                        else:
+                            db_status = DeploymentStatus.DEPLOYING if status_val == 'in-progress' else DeploymentStatus.BUILDING
+                        
+                        await deployment_service.update_deployment_status(
+                            deployment_id=deployment_id,
+                            status=db_status,
+                            error_message=data.get('error') or data.get('message') if db_status == DeploymentStatus.FAILED else None
+                        )
                 except Exception as e:
                     print(f"[Orchestrator] [WARNING] Background DB persistence mismatch: {e}")
 
@@ -784,7 +907,8 @@ class OrchestratorAgent:
                             'type': 'button',
                             'variant': 'primary',
                             'action': 'deploy_to_cloudrun',
-                            'intent': 'deploy'
+                            'intent': 'deploy',
+                            'payload': {'ignore_env_check': True}
                         }
                     ],
                     'timestamp': datetime.now().isoformat()
@@ -824,11 +948,10 @@ class OrchestratorAgent:
             # If we don't have env vars yet, we ask for them.
             # Otherwise we proceed.
             # [SUCCESS] SKIP TRAP: If ignore_env_check is True (user said "Skip"), we bypass this!
-            existing_vars = self.project_context.get('env_vars')
-            
-            print(f"[Orchestrator] _direct_deploy check: vars={len(existing_vars) if existing_vars else 0}, ignore_check={ignore_env_check}")
-            if not existing_vars and not ignore_env_check:
-                print(f"[Orchestrator] Pausing direct deployment to request environment variables.")
+            # [SUCCESS] FAANG-LEVEL UX: Pause for confirmation even if some vars are found
+            # This ensures the user sees the "Environment Variables" card and can edit/add secrets.
+            if not ignore_env_check:
+                print(f"[Orchestrator] Pausing direct deployment for environment verification.")
                 return {
                     'type': 'message',
                     'content': "While I prepare the Dockerfile, you can configure environment variables if needed.",
@@ -844,7 +967,8 @@ class OrchestratorAgent:
                             'type': 'button',
                             'variant': 'primary',
                             'action': 'deploy_to_cloudrun',
-                            'intent': 'deploy'
+                            'intent': 'deploy',
+                            'payload': {'ignore_env_check': True}
                         }
                     ],
                     'timestamp': datetime.now().isoformat()
@@ -945,7 +1069,8 @@ class OrchestratorAgent:
             'project_path': project_path, 
             'service_name': service_name,
             'env_vars': deployment_env_vars,  # [SUCCESS] Now properly formatted!
-            'ignore_env_check': ignore_env_check # [FAANG] Skip Configuration Guard
+            'ignore_env_check': ignore_env_check, # [FAANG] Skip Configuration Guard
+            'root_dir': root_dir or self.project_context.get('root_dir', '') # [FAANG] Monorepo Support
         })
         
         # [FAANG] Emergency Abort Check
@@ -1016,7 +1141,19 @@ class OrchestratorAgent:
                 print(f"[Orchestrator] [WARNING] Terminal pulse failed: {e}")
 
         # [SUCCESS] CRITICAL: Format into a natural response, don't just return the dict data
-        if deploy_result.get('type') == 'error':
+        # [SUCCESS] SOVEREIGN STATUS SYNC: Ensure database reflects failure ground truth
+        if deploy_result.get('type') == 'error' or deploy_result.get('success') is False:
+            if deployment_id:
+                try:
+                    print(f"[Orchestrator] ⚠️ SOVEREIGN SYNC: Marking deployment {deployment_id} as FAILED")
+                    error_msg = deploy_result.get('message') or deploy_result.get('content') or "Deployment failed"
+                    await deployment_service.update_deployment_status(
+                        deployment_id=deployment_id,
+                        status=DeploymentStatus.FAILED,
+                        error_message=error_msg
+                    )
+                except Exception as sync_err:
+                    print(f"[Orchestrator] Failed to sync failure status: {sync_err}")
             return deploy_result
             
         return {
@@ -1050,6 +1187,7 @@ You are DevGem, an elite Principal Engineer from Google DeepMind. Your mission i
 - **DIRECT ACTION**: If the user says "deploy", "yes", "go ahead", or "start", IMMEDIATELY call `deploy_to_cloudrun`. Never ask for the URL again if you already have it.
 - **CONTEXT AWARENESS**: Check the `Project Context` block before answering. If you see env vars are stored, move to the next logical step (deployment).
 - **SERVICE NAMES**: Always generate service names from the repository name (e.g., "my-app" from "user/my-app").
+- **MONOREPOS (ROOT DIR)**: You support monorepos. If a user points to a specific subdirectory (e.g., `/backend`) or provides a GitHub URL with `/tree/.../path`, utilize the `root_dir` parameter in your functions. Contextually identify when only a subdirectory of a repo needs deployment.
 ## Vision Capabilities (GEMINI 3 Pro VISION)
 You have multimodal vision capabilities. When a user provides a screenshot:
 1. **Analyze Design**: Identify layout issues, color mismatches, or responsiveness problems.
@@ -1072,7 +1210,8 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         progress_notifier: Optional[ProgressNotifier] = None,
         progress_callback: Optional[Callable] = None,
         safe_send: Optional[Callable] = None,
-        abort_event: Optional[asyncio.Event] = None # [FAANG] Abort support
+        abort_event: Optional[asyncio.Event] = None, # [FAANG] Abort support
+        metadata: Optional[Dict[str, Any]] = None # [NEW] Metadata support
     ) -> Dict[str, Any]:
         """
         Main entry point with FIXED progress messaging
@@ -1122,16 +1261,32 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         github_regex = r'(https?://github\.com/[a-zA-Z0-9-_./]+)'
         urls = re.findall(github_regex, user_message)
         if urls:
-            repo_url = urls[0]
-            if repo_url.endswith('.git'):
-                pass
-            else:
-                # Optional: append .git if missing, but let clone handle it usually
-                pass
+            raw_url = urls[0].rstrip('/')
             
-            self.project_context['repo_url'] = repo_url
-            print(f"[Orchestrator]  Extracted and saved Repo URL: {repo_url}")
-            # If we just found a URL, we should probably analyze it unless "deploy" is explicitly requested
+            # [FAANG] MONOREPO SMART PARSING
+            # Detects /tree/branch/path or /blob/branch/path
+            tree_match = re.search(r'github\.com/([^/]+)/([^/]+)/(tree|blob)/([^/]+)/(.+)', raw_url)
+            
+            if tree_match:
+                owner, repo, _, branch, subpath = tree_match.groups()
+                repo_url = f"https://github.com/{owner}/{repo}"
+                self.project_context['repo_url'] = repo_url
+                self.project_context['branch'] = branch
+                self.project_context['root_dir'] = subpath
+                print(f"[Orchestrator] 🧠 Auto-extracted Monorepo Context: Repo={repo_url}, Branch={branch}, Root={subpath}")
+            else:
+                # Standard repo URL
+                repo_url = raw_url
+                if repo_url.endswith('.git'):
+                    pass
+                else:
+                    # Optional: append .git if missing, but let clone handle it usually
+                    pass
+                
+                self.project_context['repo_url'] = repo_url
+                print(f"[Orchestrator]  Extracted and saved Repo URL: {repo_url}")
+            
+            # [FAANG] PROACTIVE INTENT: If user sends a URL, we should definitely analyze it
             # asking to "help deploy..." implies we should probably clone/analyze first
         
         # BEFORE sending to Gemini, check for obvious deployment intent
@@ -1159,6 +1314,11 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 # This covers both the button click (with metadata) and manually typing "skip"
                 is_skip = 'skip' in user_msg_clean
                 
+                # [SUCCESS] Metadata detection (Deterministic)
+                if metadata and metadata.get('ignore_env_check'):
+                    is_skip = True
+                    print("[Orchestrator] Detected ignore_env_check flag in metadata")
+                
                 # Check for metadata in message object if passed (though process_message signature takes str)
                 # But we handle JSON payloads below... wait, the JSON payload handler handles service_name_provided
                 # Let's check if the user_message IS a JSON with type 'env_skip'
@@ -1174,7 +1334,8 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 deploy_result = await self._direct_deploy(
                     progress_notifier=progress_notifier,
                     progress_callback=progress_callback,
-                    ignore_env_check=is_skip # [SUCCESS] Pass flag
+                    ignore_env_check=is_skip, # [SUCCESS] Pass flag
+                    deployment_id=self.project_context.get('deployment_id') # [FAANG] Resume same deployment
                 )
                 
                 # [SUCCESS] PERISTENCE FIX: Record Direct Deploy result
@@ -1192,9 +1353,36 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             await self._send_thought_message("Retrieving user repository catalog...")
             return await self._handle_list_repos()
         # Handle service name provided event (JSON)
+        # Handle service name provided event (JSON) or general Deploy Request
         try:
             if user_message.startswith('{'):
                 payload = json.loads(user_message)
+                
+                # [FAANG] Structured Deployment Request (Deterministic)
+                if payload.get('type') == 'deploy_request':
+                    repo_url = payload.get('repo_url')
+                    branch = payload.get('branch', 'main')
+                    root_dir = payload.get('root_dir', '')
+                    
+                    print(f"[Orchestrator] 🚀 Structured Deploy Request: {repo_url} (Root: {root_dir})")
+                    
+                    # Update context
+                    if repo_url: self.project_context['repo_url'] = repo_url
+                    if branch: self.project_context['branch'] = branch
+                    if root_dir: self.project_context['root_dir'] = root_dir
+                    
+                    # Trigger Analysis/Clone directly
+                    await self._send_thought_message(f"Initiating structured deployment pipeline for {root_dir or 'root'}...")
+                    return await self._handle_clone_and_analyze(
+                        repo_url=repo_url,
+                        branch=branch,
+                        root_dir=root_dir,
+                        progress_notifier=progress_notifier,
+                        progress_callback=progress_callback,
+                        skip_deploy_prompt=True, # Auto-proceed
+                        abort_event=abort_event
+                    )
+
                 if payload.get('type') == 'service_name_provided':
                     name = payload.get('name')
                     payload_repo_url = payload.get('repo_url')
@@ -1220,7 +1408,8 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                             actions=deploy_result.get('actions')
                         )
                         return deploy_result
-        except:
+        except Exception as e:
+            print(f"[Orchestrator] JSON payload handling error: {e}")
             pass
             
         await self._send_thought_message("Consulting Gemini for strategic reasoning...")
@@ -1369,6 +1558,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         self, 
         repo_url: str, 
         branch: str = 'main', 
+        root_dir: str = '', # [FAANG] Monorepo Support
         progress_notifier: Optional[ProgressNotifier] = None,
         progress_callback: Optional[Callable] = None,
         skip_deploy_prompt: bool = False, # [SUCCESS] NEW: Suppress confirmation question
@@ -1385,16 +1575,23 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             cached_path = self.project_context.get('project_path')
             cached_url = self.project_context.get('repo_url')
             
+            # [FAANG] Monorepo Context Validation
+            # If root_dir changes, we must treat it as a context switch even if repo is same
+            cached_root = self.project_context.get('root_dir', '')
+            
             if cached_path and os.path.exists(cached_path):
                 # Check for context mismatch (Stale session leakage protection)
                 # [SUCCESS] DEFENSE IN DEPTH: Normalize URLs to prevent false positives (trailing slash, casing, .git)
                 norm_requested = self._normalize_repo_url(repo_url)
                 norm_cached = self._normalize_repo_url(cached_url)
                 
-                if norm_cached != norm_requested:
-                    print(f"[Orchestrator] [WARNING] Context Mismatch Detected (Repository Swap)!")
-                    print(f"  - Requested: {norm_requested}")
-                    print(f"  - Cached: {norm_cached}")
+                # Check if root_dir matches (if provided)
+                root_dir_mismatch = (root_dir and root_dir != cached_root)
+                
+                if norm_cached != norm_requested or root_dir_mismatch:
+                    print(f"[Orchestrator] [WARNING] Context Mismatch Detected (Repository/Root Swap)!")
+                    print(f"  - Requested: {norm_requested} (root: {root_dir})")
+                    print(f"  - Cached: {norm_cached} (root: {cached_root})")
                     print(f"  - Action: Wiping stale context and forcing fresh clone.")
                     
                     # Wipe context but keep critical auth/settings if needed
@@ -1403,6 +1600,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     self.project_context.pop('repo_url', None)
                     self.project_context.pop('branch', None)
                     self.project_context.pop('env_vars', None) # Clear old env vars too!
+                    self.project_context.pop('root_dir', None)
                     
                     # Let execution fall through to standard cloning logic
                 else:
@@ -1494,17 +1692,24 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 await asyncio.sleep(0)  # [SUCCESS] Force immediate delivery
             # [SUCCESS] PHASE 14: Surgical Requirement Sanitization (Cloud Run Compat)
             # Ensure we use headless packages to avoid libGL issues (The "FAANG" Approach)
-            if project_path:
-                 self._sanitize_requirements(project_path)
+            # [FAANG] MONOREPO FIX: Apply to the effective root directory
+            analysis_path = os.path.join(project_path, root_dir) if root_dir else project_path
+            
+            if not os.path.exists(analysis_path):
+                 print(f"[Orchestrator] [WARNING] Root dir '{root_dir}' not found in repo. Falling back to repo root.")
+                 analysis_path = project_path
+
+            if analysis_path:
+                 self._sanitize_requirements(analysis_path)
             
             # Step 2: Analyze project with FIXED progress callback
             if progress_notifier:
                 await progress_notifier.start_stage(
                     DeploymentStages.CODE_ANALYSIS,
-                    " Analyzing project structure and dependencies..."
+                    f" Analyzing project structure in {root_dir if root_dir else 'root'}..."
                 )
             
-            await self._send_progress_message(" Analyzing project structure and dependencies...")
+            await self._send_progress_message(f" Analyzing project structure in {root_dir if root_dir else 'root'}...")
             await asyncio.sleep(0)  # [SUCCESS] Force immediate delivery
             
             # [SUCCESS] FIX 4: Robust progress callback with error handling
@@ -1529,8 +1734,9 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             
             try:
                 # [SUCCESS] PHASE 1.1: Pass progress_notifier to analysis service
+                # [FAANG] Use analysis_path for targeted monorepo analysis
                 analysis_result = await self.analysis_service.analyze_and_generate(
-                    project_path,
+                    analysis_path,
                     progress_callback=analysis_progress,
                     progress_notifier=progress_notifier,  # [SUCCESS] NEW: Pass notifier through
                     abort_event=abort_event # [FAANG] PASS THROUGH
@@ -1583,6 +1789,37 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             self.project_context['framework'] = analysis_data['framework']
             self.project_context['language'] = analysis_data['language']
             self.project_context['analysis_results'] = analysis_data
+
+            # [FAANG] ENV VAR INTELLIGENCE
+            # Scan for .env file and populate context so it appears in Dashboard
+            try:
+                # [FAANG] Scan in the effective root dir
+                env_path = os.path.join(analysis_path, '.env')
+                if os.path.exists(env_path):
+                    print(f"[Orchestrator] [INTELLIGENCE] Found .env file at {env_path}")
+                    # Simple robust parser to avoid dependencies if possible, or use dotenv
+                    env_dict = {}
+                    try:
+                        from dotenv import dotenv_values
+                        env_dict = dotenv_values(env_path)
+                    except ImportError:
+                        # Fallback parser
+                        with open(env_path, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith('#') and '=' in line:
+                                    k, v = line.split('=', 1)
+                                    env_dict[k.strip()] = v.strip().strip('"').strip("'")
+                    
+                    if env_dict:
+                        # Convert to dict[str, str] explicitly
+                        clean_env = {str(k): str(v) for k, v in env_dict.items() if k and v}
+                        self.project_context['env_vars'] = clean_env
+                        print(f"[Orchestrator] [INTELLIGENCE] Detected and loaded {len(clean_env)} env vars from .env")
+                        if progress_notifier:
+                            await progress_notifier.send_thought(f"Loaded {len(clean_env)} environment variables from local configuration.", "config")
+            except Exception as e:
+                print(f"[Orchestrator] [WARNING] Failed to parse .env: {e}")
             
             # If we are resuming a deployment, update its metadata now
             last_dep_id = self.project_context.get('last_deployment_id')
@@ -1641,7 +1878,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             
             dockerfile_save = await self.docker_service.save_dockerfile(
                 analysis_result['dockerfile']['content'],
-                project_path,
+                analysis_path, # [FAANG] Save to effective root dir
                 progress_callback=dockerfile_progress  # [SUCCESS] PHASE 2: Pass callback
             )
             
@@ -1650,7 +1887,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     DeploymentStages.DOCKERFILE_GEN,
                     "[SUCCESS] Dockerfile generated with optimizations",
                     details={
-                        "path": dockerfile_save.get('path', f'{project_path}/Dockerfile'),
+                        "path": dockerfile_save.get('path', f'{analysis_path}/Dockerfile'),
                         "optimizations": len(analysis_result['dockerfile'].get('optimizations', []))
                     }
                 )
@@ -1660,7 +1897,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             
             # Step 4: Create .dockerignore
             self.docker_service.create_dockerignore(
-                project_path,
+                analysis_path, # [FAANG] Save to effective root dir
                 analysis_result['analysis']['language']
             )
             
@@ -2038,7 +2275,8 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         progress_notifier: Optional[ProgressNotifier] = None,
         progress_callback: Optional[Callable] = None,
         abort_event: Optional[asyncio.Event] = None, # [FAANG]
-        ignore_env_check: bool = False  # [FAANG] Skip Configuration Guard
+        ignore_env_check: bool = False,  # [FAANG] Skip Configuration Guard
+        root_dir: str = '' # [FAANG] Monorepo Support
     ) -> Dict[str, Any]:
         """
         Deploy to Cloud Run - PRODUCTION IMPLEMENTATION
@@ -2062,6 +2300,12 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         repo_url = self.project_context.get('repo_url')
         if repo_url:
             print(f"[Orchestrator] Found repo_url for Remote Build: {repo_url}")
+            
+        # [FAANG] Monorepo Support: Ensure root_dir is populated
+        if not root_dir:
+            root_dir = self.project_context.get('root_dir', '')
+            if root_dir:
+                 print(f"[Orchestrator] Using root_dir from context: {root_dir}")
         
         if not project_path:
             return {
@@ -2254,16 +2498,16 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
         needs_secrets = any([k in str(deps).lower() for k in secret_suspects])
         
         # [HEALING] Determine if we should pause
-        # We pause if: 
-        # 1. No real vars are set AND (it's likely it needs them OR it's a fresh deployment)
-        # 2. They haven't explicitly asked to skip the check
+        # [FAANG] MANDATORY PAUSE: We always pause for fresh deployments or projects with secrets 
+        # unless the user has explicitly clicked "Proceed Anyway" (ignore_env_check).
         
         is_fresh = self.project_context.get('last_deployment_id') is None
-        is_fresh = self.project_context.get('last_deployment_id') is None
-        should_pause = (not real_vars and (needs_secrets or is_fresh)) and not ignore_env_check
+        # We pause if it's fresh OR if we want to give user a chance to review vars
+        # If ignore_env_check is True, it means the user just clicked "Proceed Anyway" or "Skip"
+        should_pause = not ignore_env_check
         
         if should_pause:
-            print(f"[Orchestrator] [GATE] Pausing for environment configuration confirmation. (Needs Secrets: {needs_secrets}, Fresh: {is_fresh})")
+            print(f"[Orchestrator] [GATE] Pausing for environment configuration confirmation. (Fresh: {is_fresh})")
             return {
                 'type': 'message',
                 'content': "### 🛡️ Configuration Guard\n\nDevGem has paused the deployment to ensure your environment is correctly configured.\n\n" + 
@@ -2284,7 +2528,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                         'variant': 'secondary',
                         'action': 'deploy_to_cloudrun',
                         'intent': 'deploy',
-                        'context': {'ignore_env_check': True}
+                        'payload': {'ignore_env_check': True}
                     }
                 ],
                 'timestamp': datetime.now().isoformat()
@@ -2336,24 +2580,10 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 'serviceName': service_name
             }
 
-            # [FAANG] EARLY REGISTRATION: Persist the record immediately to prevent dashboard "stutter"
-            # This eliminates the duplication issue because the record exists BEFORE the flow ends.
-            try:
-                # We use a non-blocking background task to ensure UI performance is prioritized
-                from services.deployment_service import deployment_service
-                asyncio.create_task(deployment_service.create_deployment(
-                    service_name=service_name,
-                    repo_url=self.project_context.get('repo_url', ''),
-                    user_id=self.user_id,
-                    framework=self.project_context.get('framework'),
-                    language=self.project_context.get('language'),
-                    deployment_id=deployment_id
-                ))
-                # Note: We don't wait for it here, but we pass the deployment_id to the service if we want it to match perfectly
-                # Actually, DeploymentService generates its own UUID. We should use ours for consistency.
-                print(f"[Orchestrator] 🚀 Early registration requested for {service_name}")
-            except Exception as early_err:
-                print(f"[Orchestrator] [WARNING] Early registration failed: {early_err}")
+            # [FAANG] EARLY REGISTRATION REMOVED
+            # Consolidated to single authoritative source at start of flow.
+            # This prevents "stutter" and duplicate ID generation.
+
         
         # [SUCCESS] FIX: Track whether this is a fresh deployment vs a resumed one
         # Fresh deployment = new deployment_id was generated above
@@ -2381,7 +2611,7 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     else:
                         db_status = DeploymentStatus.DEPLOYING if status_val == 'in-progress' else DeploymentStatus.BUILDING
                     
-                    await deployment_service.update_deployment_status(
+                    await ds_safe.deployment_service.update_deployment_status(
                         deployment_id=deployment_id,
                         status=db_status,
                         error_message=data.get('error') or data.get('message') if db_status == DeploymentStatus.FAILED else None
@@ -2408,11 +2638,10 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                     # This ensures logs are visible in the Logs page even after refresh
                     if logs and deployment_id:
                         try:
-                            from services.deployment_service import deployment_service
                             for log_line in logs:
-                                deployment_service.add_build_log(deployment_id, log_line)
+                                ds_safe.deployment_service.add_build_log(deployment_id, log_line)
                             # [GOOGLE] Atomic Flush: Ensure this batch is locked to disk immediately
-                            deployment_service.flush_logs(deployment_id)
+                            ds_safe.deployment_service.flush_logs(deployment_id)
                         except Exception as log_err:
                             print(f"[Orchestrator] [WARNING] Log bridging failed: {log_err}")
 
@@ -2864,10 +3093,15 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
                 build_config={'language': self.project_context.get('language', 'unknown')},  # [SUCCESS] Pass language for healing
                 repo_url=repo_url,
                 github_token=github_token,
+                root_dir=root_dir, # [FAANG] Monorepo Support
                 abort_event=abort_event # [FAANG]
             )
             
             build_duration = time.time() - build_start
+            
+            # [FAANG] Finalize build logs persistence BEFORE success/error branching
+            if deployment_id:
+                deployment_service.finalize_build_logs(deployment_id, f"[BUILD] Completed in {build_duration:.1f}s")
             
             # CRITICAL: Check build success BEFORE recording metrics
             if not build_result.get('success'):

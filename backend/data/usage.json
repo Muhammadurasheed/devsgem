@@ -59,6 +59,38 @@
       "deployments": 0,
       "memory_used_mb": 0,
       "bandwidth_gb": 0.00015724636614322662
+    },
+    "2026-02-06": {
+      "user_id": "Muhammadurasheed",
+      "date": "2026-02-06",
+      "requests": 13,
+      "deployments": 0,
+      "memory_used_mb": 0,
+      "bandwidth_gb": 8.683744817972183e-05
+    },
+    "2026-02-07": {
+      "user_id": "Muhammadurasheed",
+      "date": "2026-02-07",
+      "requests": 140,
+      "deployments": 0,
+      "memory_used_mb": 0,
+      "bandwidth_gb": 0.016015300527215004
+    },
+    "2026-02-08": {
+      "user_id": "Muhammadurasheed",
+      "date": "2026-02-08",
+      "requests": 300,
+      "deployments": 0,
+      "memory_used_mb": 0,
+      "bandwidth_gb": 0.09678545594215393
+    },
+    "2026-02-09": {
+      "user_id": "Muhammadurasheed",
+      "date": "2026-02-09",
+      "requests": 42,
+      "deployments": 0,
+      "memory_used_mb": 0,
+      "bandwidth_gb": 0.011720575392246246
     }
   }
 }

@@ -1,1 +1,74 @@
-{"https://deploy-2-netxus-web-n3vlci4vfq-uc.a.run.app": {"icon_url": "https://deploy-2-netxus-web-n3vlci4vfq-uc.a.run.app/logo192.png", "timestamp": "4549.7361815"}, "https://deploy-2-energram-n3vlci4vfq-uc.a.run.app": {"icon_url": "https://deploy-2-energram-n3vlci4vfq-uc.a.run.app/assets/energramlogo-BJp58bhG.png", "timestamp": "4549.7672471"}, "https://deploy-e-midas-touch-n3vlci4vfq-uc.a.run.app": {"icon_url": "https://deploy-e-midas-touch-n3vlci4vfq-uc.a.run.app/assets/logo-DsKx62Qf.jpg", "timestamp": "4560.7991527"}, "https://deploy-5-boostiq-n3vlci4vfq-uc.a.run.app": {"icon_url": "https://deploy-5-boostiq-n3vlci4vfq-uc.a.run.app/boostiq.ico", "timestamp": "4560.8143534"}, "https://deploy-e-confirmit-nest-server-n3vlci4vfq-uc.a.run.app": {"icon_url": "https://deploy-e-confirmit-nest-server-n3vlci4vfq-uc.a.run.app/favicon.ico", "timestamp": "4561.928391"}, "https://deploy-d-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app": {"icon_url": "https://deploy-d-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app/favicon.ico", "timestamp": "41466.2447546"}}
+{
+  "https://deploy-2-netxus-web-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-2-netxus-web-n3vlci4vfq-uc.a.run.app/logo192.png",
+    "timestamp": "4549.7361815"
+  },
+  "https://deploy-2-energram-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-2-energram-n3vlci4vfq-uc.a.run.app/assets/energramlogo-BJp58bhG.png",
+    "timestamp": "4549.7672471"
+  },
+  "https://deploy-e-midas-touch-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-e-midas-touch-n3vlci4vfq-uc.a.run.app/assets/logo-DsKx62Qf.jpg",
+    "timestamp": "4560.7991527"
+  },
+  "https://deploy-5-boostiq-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-5-boostiq-n3vlci4vfq-uc.a.run.app/boostiq.ico",
+    "timestamp": "4560.8143534"
+  },
+  "https://deploy-e-confirmit-nest-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-e-confirmit-nest-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "4561.928391"
+  },
+  "https://deploy-d-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-d-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "41466.2447546"
+  },
+  "https://deploy-f-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-f-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "141257.5172405"
+  },
+  "https://deploy-2-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-2-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "197610.648443"
+  },
+  "https://deploy-8-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-8-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "201805.3143869"
+  },
+  "https://deploy-4-confirmit-fastapi-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-4-confirmit-fastapi-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "2550.7595929"
+  },
+  "https://deploy-0-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-0-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "7434.4573015"
+  },
+  "https://deploy-6-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-6-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "8238.8436181"
+  },
+  "https://deploy-1-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-1-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "43148.8774197"
+  },
+  "https://deploy-9-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-9-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "44940.1228554"
+  },
+  "https://deploy-b-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-b-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "46890.2263095"
+  },
+  "https://deploy-e-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-e-confirmit-ai-agent-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": "54490.0751359"
+  },
+  "https://deploy-a-devsgem-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-a-devsgem-n3vlci4vfq-uc.a.run.app/favicon.svg",
+    "timestamp": 89921.6701008
+  },
+  "https://deploy-4-devsgem-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-4-devsgem-n3vlci4vfq-uc.a.run.app/favicon.svg",
+    "timestamp": 33972.3274373
+  }
+}

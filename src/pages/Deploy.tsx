@@ -80,7 +80,7 @@ const Deploy = () => {
     toast.info('Deployment cancelled');
   };
 
-  const handleSelectRepo = async (repoUrl: string, branch: string) => {
+  const handleSelectRepo = async (repoUrl: string, branch: string, rootDir?: string) => {
     if (!isWSConnected) {
       toast.error('Backend connection is not available', {
         description: 'Please ensure the backend server is running at http://localhost:8000'
@@ -91,11 +91,12 @@ const Deploy = () => {
     setSelectedRepo({ url: repoUrl, branch });
 
     // Send deployment request via WebSocket
-    const message = `I want to analyze and deploy this repository: ${repoUrl} (branch: ${branch})`;
+    const message = `I want to analyze and deploy this repository: ${repoUrl} (branch: ${branch})${rootDir ? ` from directory: ${rootDir}` : ''}`;
     sendMessage(message, {
       action: 'deploy',
       repoUrl,
       branch,
+      rootDir,
       githubToken: localStorage.getItem('github_token')
     });
 

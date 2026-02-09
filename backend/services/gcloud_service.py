@@ -398,6 +398,7 @@ class GCloudService:
         build_config: Optional[Dict] = None,
         repo_url: Optional[str] = None,
         github_token: Optional[str] = None,
+        root_dir: str = '', # [FAANG] Monorepo Support
         abort_event: Optional[asyncio.Event] = None # [FAANG]
     ) -> Dict:
         """
@@ -430,6 +431,7 @@ class GCloudService:
                 build_config,
                 repo_url,
                 github_token,
+                root_dir=root_dir, # [FAANG] Monorepo Support
                 abort_event=abort_event # [FAANG]
             )
         
@@ -456,6 +458,7 @@ class GCloudService:
         repo_url: Optional[str] = None,
         github_token: Optional[str] = None,
         dockerfile_content: Optional[str] = None,
+        root_dir: str = '', # [FAANG] Monorepo Support
         abort_event: Optional[asyncio.Event] = None  # [FAANG]
     ) -> Dict:
         """Internal build implementation with detailed error handling"""
@@ -596,7 +599,8 @@ class GCloudService:
                         name='gcr.io/kaniko-project/executor:latest',
                         args=[
                             '--dockerfile=Dockerfile',
-                            '--context=dir:///workspace/repo',
+                            '--dockerfile=Dockerfile',
+                            f'--context=dir:///workspace/repo/{root_dir}' if root_dir else '--context=dir:///workspace/repo',
                             f'--destination={image_tag}',
                             '--cache=false', # FINAL STAND: Disable cache to ensure entrypoint integrity
                         ],
@@ -1071,7 +1075,8 @@ class GCloudService:
             log_excerpt = await asyncio.to_thread(fetch_gcs_raw)
             
             if log_excerpt:
-                self.logger.info(f"[GCloudService] ✅ Successfully fetched {len(log_excerpt.split('\n'))} log lines.")
+                line_count = len(log_excerpt.split('\n'))
+                self.logger.info(f"[GCloudService] ✅ Successfully fetched {line_count} log lines.")
                 # Log a few lines to terminal for visibility
                 tail_lines = log_excerpt.split('\n')[-5:]
                 for line in tail_lines:
@@ -1230,16 +1235,21 @@ class GCloudService:
             # Use name 'main' for the container
             container.name = "main"
             
-            # CRITICAL FIX: Dynamic port detection (explicit, env_vars PORT, or default 8080)
-            detected_port = container_port or 8080
-            if env_vars and 'PORT' in env_vars:
+            # [FAANG] Universal Port Detection: Single Source of Truth
+            # Priority: 1) Explicit container_port, 2) env_vars PORT, 3) Cloud Run standard 8080
+            if container_port:
+                detected_port = container_port
+                self.logger.info(f"[Port] Using explicit container_port: {detected_port}")
+            elif env_vars and 'PORT' in env_vars:
                 try:
                     detected_port = int(env_vars['PORT'])
-                    self.logger.info(f"[Diagnostic] PORT found in env_vars: {detected_port}")
+                    self.logger.info(f"[Port] Using env_vars PORT: {detected_port}")
                 except (ValueError, TypeError):
-                    self.logger.warning(f"Invalid PORT in env_vars, using {detected_port}")
-            
-            self.logger.info(f"Using container port: {detected_port}")
+                    detected_port = 8080
+                    self.logger.warning(f"[Port] Invalid PORT in env_vars, fallback to {detected_port}")
+            else:
+                detected_port = 8080
+                self.logger.info(f"[Port] Using Cloud Run standard: {detected_port}")
             container.ports = [run_v2.ContainerPort(container_port=detected_port, name='http1')]
             
             # Add environment variables
@@ -2223,6 +2233,17 @@ class GCloudService:
                     for entry in get_entries(heartbeat_expr):
                         p = entry.payload
                         logs.append(f"[{entry.severity}] {entry.log_name}: {json.dumps(p) if isinstance(p, dict) else str(p)}")
+
+                # LAYER 5: The "Bottom Trawl" (Universal Container Logs)
+                if not logs:
+                    self.logger.info(f"[Diagnostic] SOVEREIGN FALLBACK: Trawling for ANY container logs in {start_time} window...")
+                    trawl_expr = f'resource.type="cloud_run_revision" AND timestamp>="{start_time}"'
+                    for entry in get_entries(trawl_expr):
+                        p = entry.payload
+                        msg = json.dumps(p) if isinstance(p, dict) else str(p)
+                        # Filter for potential relevance
+                        if "error" in msg.lower() or "fail" in msg.lower() or "port" in msg.lower():
+                            logs.append(f"[{entry.severity}] {entry.log_name} [UNCERTAIN]: {msg}")
 
                 # FINAL: Reverse and Print
                 results = logs[::-1]

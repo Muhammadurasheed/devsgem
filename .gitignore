@@ -31,3 +31,9 @@ gemini-hackathon.txt
 backendlog.md
 
 DEVPOST_JOURNEY.md
+
+# [FAANG] Sensitive Data Exclusion
+backend/data/*.json
+log*.md
+info.md
+prob.md

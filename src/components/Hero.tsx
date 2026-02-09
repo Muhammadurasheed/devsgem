@@ -8,6 +8,15 @@ import { cn } from "@/lib/utils";
 import Magnetic from "./ui/Magnetic";
 import { AnimatePresence } from "framer-motion";
 
+// [FAANG] Rhobic Container Assets for Hero Prism
+import RhobicImg1 from '@/assets/rhobic-container/img1.png';
+import RhobicImg2 from '@/assets/rhobic-container/img2.png';
+import RhobicImg3 from '@/assets/rhobic-container/img3.png';
+import RhobicImg4 from '@/assets/rhobic-container/img4.png';
+import RhobicImg5 from '@/assets/rhobic-container/img5.png';
+
+const RHOBIC_IMAGES = [RhobicImg1, RhobicImg2, RhobicImg3, RhobicImg4, RhobicImg5];
+
 interface HeroProps {
   onCTAClick: (message: string) => void;
 }
@@ -67,7 +76,7 @@ const Hero = ({ onCTAClick }: HeroProps) => {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentPreview((prev) => (prev + 1) % PREVIEWS.length);
+      setCurrentPreview((prev) => (prev + 1) % RHOBIC_IMAGES.length);
     }, 4000);
     return () => clearInterval(timer);
   }, []);
@@ -220,55 +229,39 @@ const Hero = ({ onCTAClick }: HeroProps) => {
                   <AnimatePresence mode="wait">
                     <motion.div
                       key={currentPreview}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -20 }}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
                       transition={{ duration: 0.5, ease: "easeInOut" }}
-                      className="absolute inset-0 p-6 space-y-6"
+                      className="absolute inset-0"
                     >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center">
-                          <Logo size={32} />
-                        </div>
-                        <div className="space-y-1">
-                          <div className="text-xs font-bold text-white uppercase tracking-wider">
-                            {PREVIEWS[currentPreview].title}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full animate-pulse ${PREVIEWS[currentPreview].status === 'Analyzing' ? 'bg-yellow-500' : 'bg-green-500'
-                              }`} />
-                            <div className="text-[10px] text-zinc-500">
-                              {PREVIEWS[currentPreview].region} • {PREVIEWS[currentPreview].health}
+                      {/* Full Background Image */}
+                      <motion.img
+                        key={`img-${currentPreview}`}
+                        src={RHOBIC_IMAGES[currentPreview % RHOBIC_IMAGES.length]}
+                        alt="DevGem Platform"
+                        className="w-full h-full object-cover"
+                        initial={{ scale: 1.1 }}
+                        animate={{ scale: 1 }}
+                        transition={{ duration: 0.8, ease: "easeOut" }}
+                      />
+
+                      {/* Subtle Bottom Caption Overlay */}
+                      <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-sm font-bold text-white uppercase tracking-wider shadow-black drop-shadow-md">
+                              {PREVIEWS[currentPreview % PREVIEWS.length].title}
+                            </div>
+                            <div className="text-[10px] text-zinc-300 font-medium flex items-center gap-2">
+                              <span className={`w-1.5 h-1.5 rounded-full ${PREVIEWS[currentPreview % PREVIEWS.length].status === 'Analyzing' ? 'bg-yellow-400' : 'bg-green-400'}`}></span>
+                              {PREVIEWS[currentPreview % PREVIEWS.length].region}
                             </div>
                           </div>
+                          <div className="text-[10px] font-mono text-cyan-400 bg-cyan-950/30 px-2 py-1 rounded border border-cyan-500/20">
+                            {PREVIEWS[currentPreview % PREVIEWS.length].status}
+                          </div>
                         </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        {PREVIEWS[currentPreview].metrics.map((stat, i) => (
-                          <div key={i} className="p-3 rounded-xl bg-white/5 border border-white/5 flex flex-col gap-1">
-                            <div className="text-[9px] text-zinc-600 font-bold uppercase">{stat.label}</div>
-                            <div className="text-xl font-black text-white">{stat.value}</div>
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="p-4 rounded-xl bg-black/40 border border-white/5 font-mono text-[10px] space-y-1">
-                        {PREVIEWS[currentPreview].logs.map((log, i) => (
-                          <div key={i} className={cn(
-                            "flex gap-2",
-                            log.includes('[ERR]') ? 'text-red-400' :
-                              log.includes('[AI]') ? 'text-cyan-400' : 'text-zinc-500'
-                          )}>
-                            <span className="opacity-30">{'>'}</span>
-                            <span>{log}</span>
-                          </div>
-                        ))}
-                        <motion.div
-                          animate={{ opacity: [0, 1] }}
-                          transition={{ repeat: Infinity, duration: 0.8 }}
-                          className="w-1.5 h-3 bg-cyan-500 inline-block align-middle ml-1"
-                        />
                       </div>
                     </motion.div>
                   </AnimatePresence>
@@ -281,8 +274,8 @@ const Hero = ({ onCTAClick }: HeroProps) => {
             </div>
           </motion.div>
         </div>
-      </motion.div>
-    </section>
+      </motion.div >
+    </section >
   );
 };
 

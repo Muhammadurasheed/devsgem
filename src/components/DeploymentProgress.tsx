@@ -250,10 +250,10 @@ export const DeploymentProgress = ({ messages, isTyping, deploymentUrl, activeDe
   const contextSuccess = activeDeployment?.status === 'success';
   const successMsg = messages.find(m =>
     m.metadata?.type === 'deployment_complete' ||
-    m.content.includes('Deployment Successful') ||
-    m.content.includes('Deployment Complete') ||
-    m.content.includes('[SUCCESS]') ||
-    m.content.includes('is live') ||
+    // [FAANG] Use more specific content matching for final success
+    (m.content.includes('Deployment Successful') && !m.content.includes('Dockerfile')) ||
+    (m.content.includes('Deployment Complete') && !m.content.includes('Analysis')) ||
+    m.content.includes('is live at:') || // More specific live URL pattern
     m.content.includes('.run.app') ||
     m.metadata?.url ||
     (m as any).deploymentUrl

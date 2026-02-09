@@ -20,6 +20,10 @@ def get_gemini_api_tools():
                     'branch': {
                         'type': 'string',
                         'description': 'Branch to clone (default: main or master)'
+                    },
+                    'root_dir': {
+                        'type': 'string',
+                        'description': 'Optional subdirectory within the repo to analyze (Monorepo Support). e.g., "backend", "apps/web"'
                     }
                 },
                 'required': ['repo_url']
@@ -38,6 +42,10 @@ def get_gemini_api_tools():
                     'service_name': {
                         'type': 'string',
                         'description': 'Cloud Run service name (lowercase, hyphens only)'
+                    },
+                    'root_dir': {
+                        'type': 'string',
+                        'description': 'Optional subdirectory to deploy (Monorepo Support).'
                     }
                 },
                 'required': ['project_path', 'service_name']

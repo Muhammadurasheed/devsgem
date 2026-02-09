@@ -212,7 +212,7 @@ export const useChat = (): UseChatReturn => {
 
     // Default behavior
     if (action.action) {
-      sendMessage(action.action);
+      sendMessage(action.action, action.payload);
     } else if (action.url) {
       window.open(action.url, '_blank');
     }

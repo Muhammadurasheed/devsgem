@@ -29,6 +29,11 @@ export interface Deployment {
   uptime_percentage: number;
   framework?: string;
   language?: string;
+  // [FAANG] Git Metadata
+  commit_hash?: string;
+  commit_message?: string;
+  commit_author?: string;
+  commit_date?: string;
 }
 
 export const useDeployments = () => {

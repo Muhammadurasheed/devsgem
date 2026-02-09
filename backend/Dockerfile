@@ -31,9 +31,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:' + str(os.environ.get('PORT', 8000)) + '/health').read()"
-
 # Start with uvicorn
 CMD exec uvicorn app:app --host 0.0.0.0 --port $PORT
+

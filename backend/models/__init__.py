@@ -46,16 +46,22 @@ class Deployment:
     last_deployed: Optional[str] = None
     build_logs: List[str] = field(default_factory=list)
     stages: List[Dict] = field(default_factory=list)
+    root_dir: Optional[str] = None # [FAANG] Monorepo Support
     framework: Optional[str] = None
     language: Optional[str] = None
     error_message: Optional[str] = None
+    # [FAANG] Git Metadata for Commit History
+    commit_hash: Optional[str] = None
+    commit_message: Optional[str] = None
+    commit_author: Optional[str] = None
+    commit_date: Optional[str] = None
     request_count: int = 0
     uptime_percentage: float = 100.0
     
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
         data = asdict(self)
-        data['status'] = self.status.value
+        data['status'] = self.status.value if hasattr(self.status, 'value') else str(self.status)
         return data
     
     @classmethod

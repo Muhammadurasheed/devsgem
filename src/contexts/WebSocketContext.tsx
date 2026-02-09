@@ -423,6 +423,30 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           }
           return { ...prev, status: 'deploying' };
         });
+
+        // [FAANG] UX FIX: Add message so DPMP appears at current scroll position
+        // Without this, user must scroll up to find the deployment panel
+        setMessages(prev => {
+          // Check if we already have a deployment message for this ID
+          const exists = prev.some(m =>
+            m.metadata?.deployment_id === resumeData.deployment_id &&
+            (m.metadata?.type === 'deployment_started' || m.metadata?.type === 'deployment_resumed')
+          );
+          if (exists) return prev;
+
+          return [...prev, {
+            id: `msg_resume_${resumeData.deployment_id}_${Date.now()}`,
+            role: 'assistant',
+            content: `[DEPLOY] Continuing deployment after environment configuration...`,
+            timestamp: new Date(),
+            metadata: {
+              type: 'deployment_started',
+              deployment_id: resumeData.deployment_id,
+              showLogs: true,
+              startTime: new Date().toISOString()
+            }
+          }];
+        });
         break;
 
       case 'deployment_started':
@@ -566,8 +590,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       case 'deployment_complete':
         setIsTyping(false);
         const deployCompleteRaw = serverMessage as any;
-        const deployData = deployCompleteRaw.data || deployCompleteRaw;
-        const isSuccess = deployData?.status === 'success' || deployData?.success === true || (!deployData?.error && deployData?.url);
+        // [FAANG] Robust Parsing: Check for direct 'deployment' wrapper from backend service
+        const deployData = deployCompleteRaw.deployment || deployCompleteRaw.data || deployCompleteRaw;
+        const isSuccess = deployData?.status === 'success' || deployData?.status === 'live' || deployData?.success === true || (!deployData?.error && deployData?.url);
         const deployedUrl = deployData?.url || deployData?.deployment_url || deployCompleteRaw?.url;
 
         setActiveDeployment((prev: DeploymentProgress | null) => {
@@ -606,7 +631,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         setIsTyping(false);
         const errorMsg = (serverMessage as any).content || (serverMessage as any).message || 'An unknown error occurred';
         setActiveDeployment((prev) => {
-          if (!prev || prev.status === 'failed' || prev.status === 'success') return prev;
+          // [FAANG] Guard: Don't mark as failed if deployment already succeeded
+          // Domain mapping errors and other non-critical errors shouldn't break the UI
+          if (!prev || prev.status === 'failed' || prev.status === 'success' || prev.deploymentUrl) return prev;
           return {
             ...prev,
             status: 'failed',

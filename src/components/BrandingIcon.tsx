@@ -26,6 +26,11 @@ export function BrandingIcon({ deployment, className }: BrandingIconProps) {
         ? `http://localhost:8000/api/branding/proxy?url=${encodeURIComponent(deployment.url)}`
         : null;
 
+    const getLocalAssetUrl = (query?: string) => {
+        if (!query) return null;
+        return `http://localhost:8000/api/branding/assets/match?query=${encodeURIComponent(query)}`;
+    };
+
     const getFrameworkLogo = (framework?: string, language?: string, serviceName?: string) => {
         const f = framework?.toLowerCase() || '';
         const l = language?.toLowerCase() || '';
@@ -56,32 +61,70 @@ export function BrandingIcon({ deployment, className }: BrandingIconProps) {
         return null;
     };
 
-    const [currentUrl, setCurrentUrl] = useState<string | null>(proxyUrl);
+    // [FAANG] State tracking for fallback sequence
+    const [fallbackStage, setFallbackStage] = useState(0);
+    // Stages: 0: Proxy, 1: Local(framework), 2: Local(language), 3: Cloud Fallback, 4: Done/Error
+
+    const [currentUrl, setCurrentUrl] = useState<string | null>(null);
 
     useEffect(() => {
-        setCurrentUrl(proxyUrl);
+        setFallbackStage(0);
         setError(false);
         setLoading(true);
-    }, [deployment.url]);
+
+        // Initial Selection
+        if (deployment.url) {
+            setCurrentUrl(proxyUrl);
+        } else {
+            // Jump straight to local/framework discovery
+            setFallbackStage(1);
+            const local = getLocalAssetUrl(deployment.framework);
+            if (local) {
+                setCurrentUrl(local);
+            } else {
+                setFallbackStage(2);
+                setCurrentUrl(getLocalAssetUrl(deployment.language));
+            }
+        }
+    }, [deployment.url, deployment.framework, deployment.language, deployment.service_name]);
 
     const handleError = () => {
-        if (currentUrl === proxyUrl && deployment.url) {
-            // Fallback to Google S2 if proxy fails
-            const hostname = new URL(deployment.url).hostname;
-            setCurrentUrl(`https://www.google.com/s2/favicons?domain=${hostname}&sz=128`);
-        } else if (currentUrl?.includes('google.com')) {
-            // Fallback to framework logo
-            const fwLogo = getFrameworkLogo(deployment.framework, deployment.language, deployment.service_name);
-            if (fwLogo) {
-                setCurrentUrl(fwLogo);
-            } else {
-                setError(true);
-            }
-        } else {
-            setError(true);
+        let nextStage = fallbackStage + 1;
+        let nextUrl: string | null = null;
+
+        console.log(`[Branding] Stage ${fallbackStage} failed. Moving to stage ${nextStage}`);
+
+        if (nextStage === 1) {
+            nextUrl = getLocalAssetUrl(deployment.framework);
+            if (!nextUrl) nextStage++; // skip if no framework
         }
-        setLoading(false);
+
+        if (nextStage === 2) {
+            nextUrl = getLocalAssetUrl(deployment.language);
+            if (!nextUrl) nextStage++; // skip if no language
+        }
+
+        if (nextStage === 3) {
+            nextUrl = getFrameworkLogo(deployment.framework, deployment.language, deployment.service_name);
+            if (!nextUrl) nextStage++; // final error
+        }
+
+        if (nextStage >= 4) {
+            setError(true);
+            setLoading(false);
+            return;
+        }
+
+        setFallbackStage(nextStage);
+        if (nextUrl) {
+            setCurrentUrl(nextUrl);
+        } else {
+            // Recurse to find next valid source
+            setFallbackStage(nextStage);
+            handleError();
+        }
     };
+
 
     return (
         <div className={cn("relative flex items-center justify-center shrink-0", className)}>

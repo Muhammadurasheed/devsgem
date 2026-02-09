@@ -94,7 +94,7 @@ RUN npm run build
 FROM node:20-slim
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=8080
+ENV PORT={port}
 RUN groupadd -g 1001 nodejs && useradd -u 1001 -g nodejs -m nodejs
 # NestJS build output is typically in dist
 COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
@@ -659,9 +659,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --only=production
 COPY . .
-ENV PORT=8080
+ENV PORT={port}
 ENV NODE_ENV=production
-EXPOSE 8080
+EXPOSE {port}
 CMD ["npm", "start"]
 """
             elif 'go' in lang:
@@ -669,8 +669,8 @@ CMD ["npm", "start"]
 WORKDIR /app
 COPY . .
 RUN go build -o main .
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT={port}
+EXPOSE {port}
 CMD ["./main"]
 """
             else:
@@ -679,8 +679,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT={port}
+EXPOSE {port}
 CMD ["python", "{analysis.get('entry_point', 'app.py')}"]
 """
         
