@@ -74,18 +74,19 @@ class DeploymentService:
         # For now, if ID matches, or if service_name matches, return existing or update.
         
         # 1. Check by explicit ID if provided
-        if deployment_id and deployment_id in self._deployments:
-            return self._deployments[deployment_id]
-            
         # 2. [FAANG] Collision Resolution: Generate unique suffix instead of overwriting
         # This ensures re-deploying the same repo creates a NEW dashboard entry
         # [FAANG] Idempotency Check: Return existing if found
         if deployment_id and deployment_id in self._deployments:
-            print(f"[DeploymentService] [IDEMPOTENT] Returning existing deployment: {deployment_id}")
+            print(f"[DeploymentService] [IDEMPOTENT] Re-deploying existing deployment: {deployment_id}")
             # Update fields that might have changed
             existing_dep = self._deployments[deployment_id]
             if env_vars:
                 existing_dep.env_vars.update(env_vars)
+            
+            # [FAANG] Reset status to trigger UI reactivity
+            print(f"[DeploymentService] Resetting status to PENDING for {deployment_id}")
+            existing_dep.status = DeploymentStatus.PENDING
             
             # [FAANG] Update Commit Metadata on Idempotent Re-deploy
             if commit_metadata:
@@ -97,6 +98,15 @@ class DeploymentService:
             
             existing_dep.updated_at = datetime.utcnow().isoformat() + "Z"
             self._save_deployments() # Ensure we save the updates!
+            
+            # [FAANG] Real-time Sync: Broadcast re-deploy intent
+            if self.broadcaster:
+                import asyncio
+                asyncio.create_task(self.broadcaster({
+                    "type": "status_change",
+                    "deployment": existing_dep.to_dict()
+                }))
+                
             return existing_dep
 
         # Name Collision Check & Dedup
@@ -311,6 +321,11 @@ class DeploymentService:
         
         if deployment_id in self._deployments:
             dep = self._deployments[deployment_id]
+            
+            # [FAANG] Idempotency Check: Prevent redundant broadcasts
+            old_status = dep.status
+            status_changed = (old_status != status_enum)
+            
             dep.status = status_enum  # ✅ Always assign Enum (or best effort)
             
             if error_message:
@@ -326,7 +341,8 @@ class DeploymentService:
             self._save_deployments()
             
             # [FAANG] Real-time Sync: Only broadcast for TERMINAL states to prevent premature "Live" in dashboard
-            if self.broadcaster and status_str in ["live", "failed"]:
+            # AND only if state actually changed or it's a forced completion
+            if self.broadcaster and status_str in ["live", "failed"] and status_changed:
                 import asyncio
                 event_type = "deployment_complete" if status_str == "live" else "status_change"
                 
@@ -396,17 +412,17 @@ class DeploymentService:
             self._save_deployments()
             
             # [FAANG] Real-time Sync: Broadcast URL update
-            # [FAANG] Real-time Sync: Broadcast URL update
+            # Changed to deployment_update to avoid duplicate 'success' screens
             if self.broadcaster and url:
                 import asyncio
                 # [FAANG] Safe Broadcast Wrapper
                 async def safe_url_broadcast():
                     try:
                         await self.broadcaster({
-                            "type": "deployment_complete",
+                            "type": "deployment_update", # Changed from deployment_complete
                             "deployment": dep.to_dict()
                         })
-                        print(f"[DeploymentService] [BROADCAST] deployment_complete (URL set) for {deployment_id}")
+                        print(f"[DeploymentService] [BROADCAST] deployment_update (URL set) for {deployment_id}")
                     except Exception as e:
                         print(f"[DeploymentService] [BROADCAST] URL update FAILED: {e}")
                 

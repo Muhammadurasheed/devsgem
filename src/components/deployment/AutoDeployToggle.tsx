@@ -1,4 +1,4 @@
- 
+
 
 import { useState, useEffect } from 'react';
 import { Switch } from '@/components/ui/switch';
@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { GitBranch, RefreshCw, Clock, Zap, Check, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useToast } from "@/hooks/use-toast";
+import { API_BASE_URL } from '@/lib/api/config';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -34,7 +36,7 @@ export const AutoDeployToggle = ({ deploymentId, repoUrl, className }: AutoDeplo
 
     const fetchStatus = async () => {
         try {
-            const res = await fetch(`http://localhost:8000/api/deployments/${deploymentId}/auto-deploy/status`);
+            const res = await fetch(`${API_BASE_URL}/api/deployments/${deploymentId}/auto-deploy/status`);
             if (res.ok) {
                 setStatus(await res.json());
             }
@@ -49,8 +51,8 @@ export const AutoDeployToggle = ({ deploymentId, repoUrl, className }: AutoDeplo
         setIsToggling(true);
         try {
             const endpoint = status?.enabled
-                ? `http://localhost:8000/api/deployments/${deploymentId}/auto-deploy/disable`
-                : `http://localhost:8000/api/deployments/${deploymentId}/auto-deploy/enable`;
+                ? `${API_BASE_URL}/api/deployments/${deploymentId}/auto-deploy/disable`
+                : `${API_BASE_URL}/api/deployments/${deploymentId}/auto-deploy/enable`;
 
             const res = await fetch(endpoint, { method: 'POST' });
 
@@ -72,7 +74,7 @@ export const AutoDeployToggle = ({ deploymentId, repoUrl, className }: AutoDeplo
         setIsChecking(true);
         try {
             const res = await fetch(
-                `http://localhost:8000/api/deployments/${deploymentId}/auto-deploy/check-now`,
+                `${API_BASE_URL}/api/deployments/${deploymentId}/auto-deploy/check-now`,
                 { method: 'POST' }
             );
 

@@ -9,20 +9,32 @@ interface TerminalViewProps {
     logs: string[];
     className?: string;
     autoScroll?: boolean;
+    centerOnLoad?: boolean;
 }
 
-export const TerminalView = ({ logs, className, autoScroll = true }: TerminalViewProps) => {
+export const TerminalView = ({ logs, className, autoScroll = true, centerOnLoad = false }: TerminalViewProps) => {
     const scrollRef = useRef<HTMLDivElement>(null);
+    const [hasCentered, setHasCentered] = useState(false);
     const [copied, setCopied] = useState(false);
 
     useEffect(() => {
-        if (autoScroll && scrollRef.current) {
-            const scrollContainer = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
-            if (scrollContainer) {
-                scrollContainer.scrollTop = scrollContainer.scrollHeight;
-            }
+        if (!scrollRef.current) return;
+        const scrollContainer = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+        if (!scrollContainer) return;
+
+        // [FAANG] Wow Factor: Center on initial load
+        if (centerOnLoad && !hasCentered && logs.length > 0) {
+            const viewport = scrollContainer as HTMLElement;
+            viewport.scrollTop = (viewport.scrollHeight - viewport.clientHeight) / 2;
+            setHasCentered(true);
+            return;
         }
-    }, [logs, autoScroll]);
+
+        // Standard auto-scroll to bottom
+        if (autoScroll && !centerOnLoad) {
+            scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        }
+    }, [logs, autoScroll, centerOnLoad, hasCentered]);
 
     // [FAANG] Copy logs to clipboard with toast feedback
     const handleCopyLogs = async () => {

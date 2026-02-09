@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { API_BASE_URL } from '@/lib/api/config';
 
 interface EnvVar {
     key: string;
@@ -43,14 +44,14 @@ export default function EnvManager({ deploymentId: propDeploymentId, embedded = 
             try {
                 setLoading(true);
                 // Fetch deployment details for service name
-                const depRes = await fetch(`http://localhost:8000/api/deployments/${deploymentId}`);
+                const depRes = await fetch(`${API_BASE_URL}/api/deployments/${deploymentId}`);
                 if (depRes.ok) {
                     const depData = await depRes.json();
                     setServiceName(depData.service_name);
                 }
 
                 // [FAANG] Fetch from Google Secret Manager via new sync endpoint
-                const envRes = await fetch(`http://localhost:8000/api/deployments/${deploymentId}/env`);
+                const envRes = await fetch(`${API_BASE_URL}/api/deployments/${deploymentId}/env`);
                 if (envRes.ok) {
                     const envData = await envRes.json();
                     setLastSyncSource(envData.source);
@@ -124,7 +125,7 @@ export default function EnvManager({ deploymentId: propDeploymentId, embedded = 
             }), {});
 
             // [FAANG] Two-Way Sync: Dashboard -> GSM -> Cloud Run (optional)
-            const res = await fetch(`http://localhost:8000/api/deployments/${deploymentId}/env`, {
+            const res = await fetch(`${API_BASE_URL}/api/deployments/${deploymentId}/env`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

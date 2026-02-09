@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Github, ExternalLink, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { useGitHub } from '@/hooks/useGitHub';
 import { useToast } from '@/hooks/use-toast';
+import { API_BASE_URL } from '@/lib/api/config';
 
 export const GitHubConnect = () => {
   const { isConnected, user, connect, disconnect, isLoading } = useGitHub();
@@ -27,7 +28,7 @@ export const GitHubConnect = () => {
     window.history.replaceState({}, document.title, window.location.pathname);
 
     try {
-      const response = await fetch('http://localhost:8000/auth/github/callback', {
+      const response = await fetch(`${API_BASE_URL}/auth/github/callback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code })
@@ -61,7 +62,7 @@ export const GitHubConnect = () => {
   const handleConnect = async () => {
     try {
       setIsAuthLoading(true);
-      const response = await fetch('http://localhost:8000/auth/github/login');
+      const response = await fetch(`${API_BASE_URL}/auth/github/login`);
       const data = await response.json();
 
       if (data.url) {

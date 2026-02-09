@@ -5,6 +5,8 @@ import { useWebSocketContext } from "@/contexts/WebSocketContext";
 import confetti from "canvas-confetti";
 import ChatMessage from "./ChatMessage";
 import ChatInput from "./ChatInput";
+import { Button } from './ui/button';
+import { API_BASE_URL } from '@/lib/api/config';
 import { useChat } from "@/hooks/useChat";
 import type { MessageAction } from "@/types/websocket";
 import { AnimatePresence, motion } from "framer-motion";
@@ -381,7 +383,7 @@ const ChatWindow = ({ onClose, initialMessage }: ChatWindowProps) => {
                             onClick={async (e) => {
                               e.stopPropagation();
                               if (confirm('Permanently delete this thread?')) {
-                                await fetch(`http://localhost:8000/api/chat/history/${session.id}`, { method: 'DELETE' });
+                                await fetch(`${API_BASE_URL}/api/chat/history/${session.id}`, { method: 'DELETE' });
                                 refreshSessions();
                                 if (session.id === activeSessionId) resetSession();
                               }

@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useGitHub } from '@/hooks/useGitHub';
 import { useChat } from '@/hooks/useChat';
+import { API_BASE_URL } from '@/lib/api/config';
 
 const Deploy = () => {
   const navigate = useNavigate();
@@ -83,7 +84,7 @@ const Deploy = () => {
   const handleSelectRepo = async (repoUrl: string, branch: string, rootDir?: string) => {
     if (!isWSConnected) {
       toast.error('Backend connection is not available', {
-        description: 'Please ensure the backend server is running at http://localhost:8000'
+        description: `Please ensure the backend server is running at ${API_BASE_URL}`
       });
       return;
     }
@@ -130,8 +131,8 @@ const Deploy = () => {
             {/* Backend Connection Status */}
             <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${connectionStatus.state === 'connected' ? 'bg-green-500' :
-                connectionStatus.state === 'connecting' ? 'bg-yellow-500 animate-pulse' :
-                  'bg-red-500'
+                  connectionStatus.state === 'connecting' ? 'bg-yellow-500 animate-pulse' :
+                    'bg-red-500'
                 }`} />
             </div>
           </div>
@@ -146,7 +147,7 @@ const Deploy = () => {
             <Alert variant="destructive">
               <WifiOff className="h-4 w-4" />
               <AlertDescription>
-                <strong>Backend Offline:</strong> Please start the backend server at http://localhost:8000
+                <strong>Backend Offline:</strong> Please start the backend server at {API_BASE_URL}
                 <br />
                 <code className="text-xs mt-1 block">cd backend && python app.py</code>
               </AlertDescription>

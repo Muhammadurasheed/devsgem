@@ -2,7 +2,7 @@ import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import remarkGfm from "remark-gfm";
-import { User, Sparkles, Loader2, Rocket, ExternalLink, Timer, Globe, ShieldCheck, CheckCircle2 } from "lucide-react";
+import { User, Sparkles, Loader2, Rocket, ExternalLink, Timer, Globe, ShieldCheck, CheckCircle2, Copy } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import React, { useState, useEffect, useRef } from "react";
 import type { ChatMessage, MessageAction } from "@/types/websocket";
@@ -85,6 +85,18 @@ const NeuroLog = ({ thoughts }: { thoughts: string[] }) => {
 
 // --- Celebration Card Component ---
 const CelebrationCard = ({ url, metadata }: { url: string, metadata?: any }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy', err);
+    }
+  };
+
   return (
     <motion.div
       initial={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -117,15 +129,23 @@ const CelebrationCard = ({ url, metadata }: { url: string, metadata?: any }) => 
           </div>
         </div>
 
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="w-full py-3 bg-gradient-to-r from-[#3b82f6] to-[#8b5cf6] hover:from-[#4f46e5] hover:to-[#9333ea] text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all transform hover:scale-[1.02] shadow-xl hover:shadow-[#3b82f6]/20"
-        >
-          <ExternalLink className="w-4 h-4" />
-          Visit Live Application
-        </a>
+        <div className="flex gap-2 w-full pt-2">
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 py-3 bg-gradient-to-r from-[#3b82f6] to-[#8b5cf6] hover:from-[#4f46e5] hover:to-[#9333ea] text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all transform hover:scale-[1.01] shadow-xl hover:shadow-[#3b82f6]/20"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Visit
+          </a>
+          <button
+            onClick={handleCopy}
+            className="px-4 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all border border-white/10"
+          >
+            {copied ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+          </button>
+        </div>
       </div>
     </motion.div>
   );

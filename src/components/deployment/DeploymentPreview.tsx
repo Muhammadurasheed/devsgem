@@ -16,6 +16,7 @@ import {
     Search
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { API_BASE_URL } from '@/lib/api/config';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
@@ -68,7 +69,7 @@ export const DeploymentPreview = ({
         };
     }, [deploymentId, status]);
 
-    const browserFavicon = deploymentUrl ? `http://localhost:8000/api/branding/proxy?url=${encodeURIComponent(deploymentUrl)}` : null;
+    const browserFavicon = deploymentUrl ? `${API_BASE_URL}/api/branding/proxy?url=${encodeURIComponent(deploymentUrl)}` : null;
 
     const containerRef = useRef<HTMLDivElement>(null);
     const [scale, setScale] = useState(1);

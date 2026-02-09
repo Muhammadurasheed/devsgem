@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Globe, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { resolveLogo } from '@/lib/logos';
+import { API_BASE_URL } from '@/lib/api/config';
 
 interface BrandingIconProps {
     deployment: {
@@ -23,12 +25,12 @@ export function BrandingIcon({ deployment, className }: BrandingIconProps) {
     // Layer 4: Globe Icon
 
     const proxyUrl = deployment.url
-        ? `http://localhost:8000/api/branding/proxy?url=${encodeURIComponent(deployment.url)}`
+        ? `${API_BASE_URL}/api/branding/proxy?url=${encodeURIComponent(deployment.url)}`
         : null;
 
     const getLocalAssetUrl = (query?: string) => {
         if (!query) return null;
-        return `http://localhost:8000/api/branding/assets/match?query=${encodeURIComponent(query)}`;
+        return `${API_BASE_URL}/api/branding/assets/match?query=${encodeURIComponent(query)}`;
     };
 
     const getFrameworkLogo = (framework?: string, language?: string, serviceName?: string) => {

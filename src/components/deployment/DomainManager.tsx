@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from 'sonner';
+import { API_BASE_URL } from '@/lib/api/config';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface DomainRecord {
@@ -37,7 +38,7 @@ export const DomainManager = ({ deploymentId, serviceName }: DomainManagerProps)
     const { data: domains = [], isLoading } = useQuery({
         queryKey: ['domains', deploymentId],
         queryFn: async () => {
-            const res = await fetch(`http://localhost:8000/api/deployments/${deploymentId}/domains`);
+            const res = await fetch(`${API_BASE_URL}/api/deployments/${deploymentId}/domains`);
             if (!res.ok) throw new Error('Failed to fetch domains');
             const data = await res.json();
             return data.domains as DomainMapping[];
@@ -52,7 +53,7 @@ export const DomainManager = ({ deploymentId, serviceName }: DomainManagerProps)
     // 2. Add Domain Mutation
     const addMutation = useMutation({
         mutationFn: async (domain: string) => {
-            const res = await fetch(`http://localhost:8000/api/deployments/${deploymentId}/domains`, {
+            const res = await fetch(`${API_BASE_URL}/api/deployments/${deploymentId}/domains`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ domain })

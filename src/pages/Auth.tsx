@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { API_BASE_URL } from '@/lib/api/config';
 import { motion, AnimatePresence } from "framer-motion";
 import {
     Loader2,
@@ -25,7 +26,7 @@ import {
 } from "lucide-react";
 import Logo from "@/components/Logo";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL_INTERNAL = API_BASE_URL;
 
 // Google Icon component (inline SVG for crisp rendering)
 const GoogleIcon = () => (

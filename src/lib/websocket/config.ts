@@ -9,20 +9,14 @@ import { WebSocketConfig } from '@/types/websocket';
 // Environment Configuration
 // ============================================================================
 
+import { WS_URL } from '@/lib/api/config';
+
+// ============================================================================
+// Environment Configuration
+// ============================================================================
+
 const getWebSocketUrl = (): string => {
-  // In production, this would be your deployed backend URL
-  // For now, we'll use localhost for development
-  const isDevelopment = import.meta.env.DEV;
-
-  if (isDevelopment) {
-    // Local development - FastAPI backend
-    return 'ws://localhost:8000/ws/chat';
-  }
-
-  // Production - Cloud Run backend
-  // Replace with your actual Cloud Run service URL
-  const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-  return backendUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws/chat';
+  return WS_URL;
 };
 
 // ============================================================================

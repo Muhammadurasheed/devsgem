@@ -12,6 +12,8 @@ import re
 import asyncio
 import logging
 import sys
+import hmac
+import hashlib
 
 # [SOVEREIGN BOOTSTRAPPING] 
 # Windows requires ProactorEventLoop for subprocess support (Playwright, GCloud CLI)
@@ -176,6 +178,14 @@ orchestrator = OrchestratorAgent(
     location=os.getenv('GOOGLE_CLOUD_REGION', 'us-central1')
 )
 
+# [FAANG] Enable broadcasting for the global orchestrator
+# A simple wrapper that ignores the session_id and broadcasts to all
+async def global_safe_send(session_id: str, data: dict):
+    await broadcast_to_all(data)
+
+orchestrator.safe_send = global_safe_send
+orchestrator.session_id = "global_broadcast_session"
+
 # Initialize Monitoring Agent
 async def monitoring_alert_hook(user_id: str, payload: dict):
     # Broadcast to all sessions for this user
@@ -254,6 +264,24 @@ async def broadcast_to_session(session_id: str, data: dict):
     
     print(f"[WebSocket] [ERROR] Failed to send to {session_id} after {max_retries} attempts")
     return False
+
+
+async def broadcast_to_all(data: dict):
+    """
+    [FAANG] Global Broadcast Protocol
+    Sends a message to every active WebSocket connection.
+    Used for background tasks (like GitHub webhooks) that aren't tied to a specific session.
+    """
+    if not active_connections:
+        print("[WebSocket] [INFO] No active connections for global broadcast")
+        return
+        
+    print(f"[WebSocket] 🌪️ Global broadcast: {data.get('type')} to {len(active_connections)} sessions")
+    tasks = [broadcast_to_session(sid, data) for sid in active_connections.keys()]
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+# [FAANG] Wire Deployment Service to Global Broadcaster
+deployment_service.set_broadcaster(broadcast_to_all)
 
 
 # ============================================================================
@@ -2811,9 +2839,29 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     [FAANG] GitHub Webhook Receiver
     Listens for push events and triggers auto-redeployment.
+    Includes signature validation for production security.
     """
     try:
-        # 1. Verify Event Type
+        # 1. Verify Signature (Security)
+        signature = request.headers.get("X-Hub-Signature-256")
+        webhook_secret = os.getenv("GITHUB_WEBHOOK_SECRET")
+        
+        if webhook_secret:
+            if not signature:
+                print("[Webhook] [SECURITY] Missing signature header")
+                raise HTTPException(status_code=401, detail="Missing signature")
+            
+            payload_body = await request.body()
+            sha_name, signature_val = signature.split('=')
+            if sha_name != 'sha256':
+                raise HTTPException(status_code=401, detail="Unsupported signature type")
+            
+            mac = hmac.new(webhook_secret.encode(), msg=payload_body, digestmod=hashlib.sha256)
+            if not hmac.compare_digest(mac.hexdigest(), signature_val):
+                print("[Webhook] [SECURITY] Invalid signature detected")
+                raise HTTPException(status_code=401, detail="Invalid signature")
+        
+        # 2. Verify Event Type
         event = request.headers.get("X-GitHub-Event", "ping")
         if event == "ping":
             return {"status": "pong", "message": "Webhook configured successfully"}

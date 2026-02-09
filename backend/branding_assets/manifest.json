@@ -70,5 +70,13 @@
   "https://deploy-4-devsgem-n3vlci4vfq-uc.a.run.app": {
     "icon_url": "https://deploy-4-devsgem-n3vlci4vfq-uc.a.run.app/favicon.svg",
     "timestamp": 33972.3274373
+  },
+  "https://deploy-c-devgem-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-c-devgem-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": 35623.8282224
+  },
+  "https://deploy-1-devgem-server-n3vlci4vfq-uc.a.run.app": {
+    "icon_url": "https://deploy-1-devgem-server-n3vlci4vfq-uc.a.run.app/favicon.ico",
+    "timestamp": 38638.1223675
   }
 }

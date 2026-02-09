@@ -593,9 +593,23 @@ class OrchestratorAgent:
         print(f"[Orchestrator] Found target deployment: {existing_dep.service_name} ({existing_dep.id})")
         
         # 2. Trigger Redeploy
-        # We reuse _direct_deploy but with the existing ID to ensure UPDATE semantics
+        # [FAANG] RE-DEPLOYMENT STAGING: Inform service layer to reset status and update metadata
+        # This triggers the global broadcast so the dashboard reflects the update IMMEDIATELY.
         try:
-            # Notify start (optional, maybe via websocket logic elsewhere)
+            print(f"[Orchestrator] Staging re-deployment for {existing_dep.service_name}...")
+            await deployment_service.create_deployment(
+                service_name=existing_dep.service_name,
+                repo_url=repo_url,
+                deployment_id=existing_dep.id,
+                commit_metadata=commit_metadata,
+                user_id=existing_dep.user_id,
+                root_dir=existing_dep.root_dir or ''
+            )
+            
+            # 3. Initiating Build/Deploy Sequence
+            # We reuse _direct_deploy but with the existing ID to ensure UPDATE semantics
+            await self._send_progress_message(f"[WEBHOOK] 🎣 Received push event for {repo_url}. Initiating auto-redeployment...")
+            await self._send_thought_message(f"Auto-deploy sequence started for {existing_dep.service_name}. Target commit: {commit_metadata.get('hash', 'unknown')[:7]}")
             
             result = await self._direct_deploy(
                 repo_url=repo_url,
@@ -604,6 +618,9 @@ class OrchestratorAgent:
                 commit_metadata=commit_metadata,
                 root_dir=existing_dep.root_dir or ''
             )
+            
+            if result.get('success') or result.get('type') == 'message':
+                 await self._send_progress_message(f"[AUTO-DEPLOY] ✅ Successfully updated {existing_dep.service_name}")
             
             return result
             
@@ -664,7 +681,9 @@ class OrchestratorAgent:
         deployment_id: Optional[str] = None, # [FAANG] Pass-through authoritative ID
         abort_event: Optional[asyncio.Event] = None, # [FAANG] Emergency Abort Control
         root_dir: str = '', # [FAANG] Monorepo Support
-        commit_metadata: Optional[Dict[str, str]] = None # [FAANG] Git History
+        commit_metadata: Optional[Dict[str, str]] = None, # [FAANG] Git History
+        repo_url: Optional[str] = None, # [FAANG] Override for Auto-Deploy
+        service_name: Optional[str] = None # [FAANG] Override for Auto-Deploy
     ) -> Dict[str, Any]:
         """
         Logic for direct deployment when intent is confirmed.
@@ -711,18 +730,22 @@ class OrchestratorAgent:
             progress_callback = smooth_wrapper
 
         # Extract service name from context if it was provided via service_name_provided event
-        custom_service_name = self.project_context.get('custom_service_name')
-        repo_url = self.project_context.get('repo_url')
+        custom_service_name = service_name or self.project_context.get('custom_service_name')
+        repo_url = repo_url or self.project_context.get('repo_url')
         
         if custom_service_name:
             service_name = custom_service_name
-            print(f"[Orchestrator] Using CUSTOM service name: {service_name}")
+            print(f"[Orchestrator] Using service name: {service_name}")
         elif repo_url:
             base_name = repo_url.split('/')[-1].replace('.git', '').replace('_', '-').lower()
             service_name = base_name
         else:
             base_name = "servergem-app"
             service_name = base_name
+            
+        # [FAANG] Ensure repo_url is in context for downstream services
+        if repo_url:
+            self.project_context['repo_url'] = repo_url
             
         # Force function call results
         # [SUCCESS] DirectFunctionCall: Encapsulates function call data for orchestrated execution
@@ -800,10 +823,15 @@ class OrchestratorAgent:
                         else:
                             deployment_service.add_build_log(deployment_id, str(log_content))
 
-                    status_val = data.get('status')
                     if status_val in ['success', 'error', 'live', 'failed']:
-                        if status_val == 'success' or status_val == 'live':
+                        if status_val == 'live':
                             db_status = DeploymentStatus.LIVE
+                        elif status_val == 'success':
+                            # [FAANG] Only mark LIVE if the terminal stage is successful
+                            if data.get('stage') == 'cloud_deployment':
+                                db_status = DeploymentStatus.LIVE
+                            else:
+                                db_status = DeploymentStatus.BUILDING
                         elif status_val == 'error' or status_val == 'failed':
                             db_status = DeploymentStatus.FAILED
                         else:
@@ -1090,13 +1118,6 @@ class OrchestratorAgent:
                 final_link = deploy_result.get('deployment_url') or deploy_result.get('url')
                 print(f"[Orchestrator] 🚀 HEALING PULSE: Finalizing deployment {deployment_id} as LIVE")
                 
-                # Update DB directly to bypass possible mid-flow callback failures
-                await deployment_service.update_deployment_status(
-                    deployment_id=deployment_id,
-                    status=DeploymentStatus.LIVE,
-                    error_message=None
-                )
-                
                 if final_link:
                     await deployment_service.update_url(deployment_id, final_link)
                     
@@ -1108,6 +1129,13 @@ class OrchestratorAgent:
                         )
                     except Exception as preview_err:
                         print(f"[Orchestrator] Preview generation skipped: {preview_err}")
+
+                # Update DB directly to bypass possible mid-flow callback failures
+                await deployment_service.update_deployment_status(
+                    deployment_id=deployment_id,
+                    status=DeploymentStatus.LIVE,
+                    error_message=None
+                )
                 
                 # Force final UI sync for checkmarks and completion
                 if progress_notifier:
@@ -2604,8 +2632,14 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             if data.get('status') in ['success', 'error', 'live', 'failed']:
                 try:
                     status_val = data.get('status')
-                    if status_val == 'success' or status_val == 'live':
+                    if status_val == 'live':
                         db_status = DeploymentStatus.LIVE
+                    elif status_val == 'success':
+                        # [FAANG] Only mark LIVE if the terminal stage is successful
+                        if data.get('stage') == 'cloud_deployment':
+                            db_status = DeploymentStatus.LIVE
+                        else:
+                            db_status = DeploymentStatus.BUILDING
                     elif status_val == 'error' or status_val == 'failed':
                         db_status = DeploymentStatus.FAILED
                     else:
@@ -3520,10 +3554,9 @@ Your goal is to get the user from "Zero to Live URL" in under 60 seconds.
             # [SIGNAL RESTORE]: Definitive terminal pulse for WebSocket synchronization
             if progress_callback:
                 await progress_callback({
-                    'type': 'deployment_complete',
-                    'status': 'success',
-                    'deployment_id': deployment_id,
-                    'url': deploy_result['url']
+                    'type': 'message',
+                    'content': 'Finalizing deployment state...',
+                    'deployment_id': deployment_id
                 })
             
             # Calculate metrics and complete monitoring

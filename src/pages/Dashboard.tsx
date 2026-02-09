@@ -24,7 +24,9 @@ import {
   Home,
   Clock,
   Key,
-  LayoutDashboard
+  LayoutDashboard,
+  Copy, // Added
+  Check // Added
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -56,7 +58,8 @@ const Dashboard = () => {
       const triggerTypes = [
         'deployment_complete',
         'status_change',
-        'deployment_started'  // [FAANG] Optimistic UI: Show deploying card immediately
+        'deployment_started',
+        'deployment_update'  // [FAANG] Real-time Sync: Auto-populate URL when it's assigned
       ];
 
       if (triggerTypes.includes(message.type)) {
@@ -147,6 +150,20 @@ const Dashboard = () => {
       return formatDistanceToNow(new Date(dateString), { addSuffix: true });
     } catch {
       return dateString;
+    }
+  };
+
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyUrl = async (e: React.MouseEvent, url: string, id: string) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedId(id);
+      toast.success('URL copied to clipboard!');
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      toast.error('Failed to copy URL');
     }
   };
 
@@ -291,14 +308,28 @@ const Dashboard = () => {
                         </div>
                       </div>
                       <CardDescription className="flex items-center gap-2 ml-11">
-                        <a
-                          href={deployment.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          {deployment.url}
-                        </a>
+                        <div className="flex items-center gap-2 group/url">
+                          <a
+                            href={deployment.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline text-sm truncate"
+                          >
+                            {deployment.url.replace('https://', '')}
+                          </a>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover/url:opacity-100 transition-opacity"
+                            onClick={(e) => handleCopyUrl(e, deployment.url, deployment.id)}
+                          >
+                            {copiedId === deployment.id ? (
+                              <Check className="h-3 w-3 text-green-500" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-muted-foreground" />
+                            )}
+                          </Button>
+                        </div>
                         <ExternalLink className="w-3 h-3" />
                       </CardDescription>
                     </div>

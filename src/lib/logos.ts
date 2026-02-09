@@ -1,4 +1,5 @@
 import { Deployment } from '@/hooks/useDeployments';
+import { API_BASE_URL } from './api/config';
 
 /**
  * Standardized Iconography Engine
@@ -11,7 +12,7 @@ export const resolveLogo = (deployment: Deployment) => {
         // [FAANG] Sovereign Branding Proxy
         // We use our specialized backend service to extract and proxy high-fidelity icons.
         // This bypasses CORS and ensures we get the *real* brand identity.
-        return `http://localhost:8000/api/branding/proxy?url=${encodeURIComponent(deployment.url)}`;
+        return `${API_BASE_URL}/api/branding/proxy?url=${encodeURIComponent(deployment.url)}`;
     }
 
     // 2. Framework Fallback

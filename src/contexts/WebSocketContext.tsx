@@ -11,6 +11,7 @@ import { ConnectionStatus, ServerMessage, ClientMessage, ChatMessage, MessageAct
 import { toast } from 'sonner';
 import { DEPLOYMENT_STAGES, DeploymentProgress } from '@/types/deployment';
 import { authService } from '@/lib/auth';
+import { API_BASE_URL } from '@/lib/api/config';
 
 interface WebSocketContextValue {
   isConnected: boolean;
@@ -105,7 +106,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const fetchHistory = useCallback(async (sid: string) => {
     try {
       console.log(`[WebSocketProvider] 🕰️ Fetching history for: ${sid}`);
-      const response = await fetch('http://localhost:8000/api/chat/history', {
+      const response = await fetch(`${API_BASE_URL}/api/chat/history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sid }),
@@ -141,7 +142,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
   const refreshSessions = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/chat/sessions');
+      const response = await fetch(`${API_BASE_URL}/api/chat/sessions`);
       if (response.ok) {
         const data = await response.json();
         setSessions(data.sessions || []);
@@ -172,7 +173,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
   const renameSession = useCallback(async (sid: string, newTitle: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/chat/sessions/${sid}`, {
+      const response = await fetch(`${API_BASE_URL}/api/chat/sessions/${sid}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: newTitle }),
@@ -656,6 +657,21 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       case 'snapshot_ready':
         // [FAANG] Background signals - silently ignored here as they are 
         // typically handled via onMessage listeners in specific components.
+        break;
+
+      case 'deployment_update':
+        // [FAANG] Silent State Sync: Update URL/Metadata without triggering chat noise
+        const updateMsg = serverMessage as any;
+        const upDeployment = updateMsg.deployment || updateMsg.data;
+
+        setActiveDeployment((prev) => {
+          if (!prev || (upDeployment.id && prev.deploymentId !== upDeployment.id)) return prev;
+          return {
+            ...prev,
+            deploymentUrl: upDeployment.url || prev.deploymentUrl,
+            status: upDeployment.status || prev.status
+          };
+        });
         break;
 
       default:

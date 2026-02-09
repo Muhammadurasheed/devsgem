@@ -3,6 +3,7 @@ import { Terminal, RefreshCw, Filter, Search, Download, Trash2, Clock, ShieldAle
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { API_BASE_URL } from '@/lib/api/config';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -29,7 +30,7 @@ export const RuntimeLogs = ({
 
     const fetchLogs = async () => {
         try {
-            const response = await fetch(`http://localhost:8000/api/deployments/${deploymentId}/runtime-logs?limit=100`);
+            const response = await fetch(`${API_BASE_URL}/api/deployments/${deploymentId}/runtime-logs?limit=100`);
             if (response.ok) {
                 const data = await response.json();
                 const newLogs = data.logs || [];
