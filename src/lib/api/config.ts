@@ -6,7 +6,7 @@
 const isDevelopment = import.meta.env.DEV;
 
 // Authoritative Production URL
-export const PRODUCTION_BACKEND_URL = 'https://deploy-1-devgem-server-693054814654.us-central1.run.app';
+export const PRODUCTION_BACKEND_URL = 'https://deploy-c-devgem-server-693054814654.us-central1.run.app';
 export const LOCAL_BACKEND_URL = 'http://localhost:8000';
 
 // Resolution Logic
