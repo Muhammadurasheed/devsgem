@@ -42,8 +42,10 @@ export type ServerMessageType =
   | 'deployment_complete' // Deployment finished
   | 'ai_thought'          // AI internal reasoning
   | 'error'               // Error occurred
+  | 'ping'                // Keep-alive heartbeat
   | 'pong'                // Heartbeat response
-  | 'pong'                // Heartbeat response
+  | 'progress'            // Standard progress message
+  | 'snapshot_ready'      // UI Snapshot generated
   | 'monitoring_alert'    // Proactive health alert
   | 'status_change';      // Service status change notification
 
@@ -100,18 +102,24 @@ export type ClientMessage =
 // Server Messages (Backend → Frontend)
 // ============================================================================
 
-export interface ServerConnectedMessage {
+export interface BaseServerMessage {
+  type: ServerMessageType;
+  timestamp: string;
+  deployment_id?: string;
+  deployment?: any;
+}
+
+export interface ServerConnectedMessage extends BaseServerMessage {
   type: 'connected';
   session_id: string;
   message: string;
 }
 
-export interface ServerTypingMessage {
+export interface ServerTypingMessage extends BaseServerMessage {
   type: 'typing';
-  timestamp: string;
 }
 
-export interface ServerChatMessage {
+export interface ServerChatMessage extends BaseServerMessage {
   type: 'message';
   data: {
     content: string;
@@ -120,10 +128,9 @@ export interface ServerChatMessage {
     actions?: MessageAction[];
     metadata?: Record<string, any>;
   };
-  timestamp: string;
 }
 
-export interface ServerAnalysisMessage {
+export interface ServerAnalysisMessage extends BaseServerMessage {
   type: 'analysis';
   data: {
     language: string;
@@ -136,10 +143,9 @@ export interface ServerAnalysisMessage {
     recommendations: string[];
     warnings: string[];
   };
-  timestamp: string;
 }
 
-export interface ServerDeploymentUpdate {
+export interface ServerDeploymentUpdate extends BaseServerMessage {
   type: 'deployment_update';
   data: {
     stage: string;
@@ -147,20 +153,18 @@ export interface ServerDeploymentUpdate {
     message: string;
     logs?: string[];
   };
-  timestamp: string;
 }
 
-export interface ServerDeploymentStarted {
+export interface ServerDeploymentStarted extends BaseServerMessage {
   type: 'deployment_started';
   deployment_id: string;
   data?: {
     message?: string;
   };
   message?: string;
-  timestamp: string;
 }
 
-export interface ServerDeploymentProgress {
+export interface ServerDeploymentProgress extends BaseServerMessage {
   type: 'deployment_progress';
   deployment_id: string;
   stage: string;
@@ -168,19 +172,17 @@ export interface ServerDeploymentProgress {
   message: string;
   details?: Record<string, any>;
   progress?: number;
-  timestamp: string;
 }
 
 // ✅ NEW: Deployment resumed message (after .env config)
-export interface ServerDeploymentResumed {
+export interface ServerDeploymentResumed extends BaseServerMessage {
   type: 'deployment_resumed';
   deployment_id: string;
   resume_stage?: string;
   resume_progress?: number;
-  timestamp: string;
 }
 
-export interface ServerDeploymentComplete {
+export interface ServerDeploymentComplete extends BaseServerMessage {
   type: 'deployment_complete';
   data: {
     status?: string;
@@ -192,56 +194,48 @@ export interface ServerDeploymentComplete {
     details?: Record<string, any>;
     metadata?: Record<string, any>;
   };
-  timestamp: string;
 }
 
-export interface ServerErrorMessage {
+export interface ServerErrorMessage extends BaseServerMessage {
   type: 'error';
   message: string;
   code?: string;
-  timestamp: string;
 }
 
-export interface ServerThoughtMessage {
+export interface ServerThoughtMessage extends BaseServerMessage {
   type: 'ai_thought';
   content: string;
-  timestamp: string;
 }
 
-export interface ServerProgressMessage {
+export interface ServerProgressMessage extends BaseServerMessage {
   type: 'progress';
   content: string;
   metadata?: Record<string, any>;
-  timestamp: string;
 }
 
-export interface ServerPongMessage {
+export interface ServerPongMessage extends BaseServerMessage {
   type: 'pong';
-  timestamp: string;
 }
 
-export interface ServerPingMessage {
+export interface ServerPingMessage extends BaseServerMessage {
   type: 'ping';
-  timestamp: string;
 }
 
-export interface ServerMonitoringAlert {
+export interface ServerMonitoringAlert extends BaseServerMessage {
   type: 'monitoring_alert';
   deployment_id: string;
   service_name: string;
   alert_type: string;
   message: string;
   metadata?: Record<string, any>;
-  timestamp: string;
 }
 
-export interface ServerStatusChangeMessage {
+export interface ServerStatusChangeMessage extends BaseServerMessage {
   type: 'status_change';
   deployment_id: string;
   status: string;
   service_name?: string;
   message?: string;
-  timestamp: string;
 }
 
 export type ServerMessage =

@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -19,7 +20,9 @@ import {
     Zap,
     History,
     User,
-    ArrowLeft
+    ArrowLeft,
+    Copy,
+    Check
 } from "lucide-react";
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
@@ -38,6 +41,7 @@ import { BrandingIcon } from "@/components/BrandingIcon";
 import { DomainManager } from '@/components/deployment/DomainManager';
 import { resolveLogo } from '@/lib/logos';
 import { Deployment } from "@/hooks/useDeployments";
+import { useWebSocketContext } from "@/contexts/WebSocketContext";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -56,12 +60,14 @@ export default function DeploymentDetails() {
     const navigate = useNavigate();
     const { toast } = useToast();
     const activeTab = searchParams.get('tab') || 'overview';
+    const { toggleChatWindow, sendMessage, onMessage } = useWebSocketContext();
 
     // [MAANG] High-Performance Data Rehydration
     const {
         data: deployment,
         isLoading,
-        error
+        error,
+        refetch
     } = useQuery<Deployment>({
         queryKey: ['deployment', deploymentId],
         queryFn: async () => {
@@ -72,8 +78,56 @@ export default function DeploymentDetails() {
         staleTime: 60000, // Keep data fresh for 1 min
     });
 
+    // [FAANG] High-Fidelity Real-Time Synchronization
+    useEffect(() => {
+        const unsubscribe = onMessage((message) => {
+            // Refetch data immediately on any deployment-related event
+            const syncTypes = [
+                'deployment_progress',
+                'deployment_complete',
+                'status_change',
+                'deployment_update',
+                'thought'
+            ];
+
+            if (syncTypes.includes(message.type)) {
+                // If it's a progress or update for THIS deployment, refetch
+                if (message.deployment_id === deploymentId ||
+                    message.deployment?.id === deploymentId ||
+                    message.type === 'status_change') {
+
+                    console.log('[DeploymentDetails] 🍿 Real-time sync triggered by:', message.type);
+                    refetch();
+                }
+            }
+        });
+
+        return () => unsubscribe();
+    }, [onMessage, deploymentId, refetch]);
+
     const setActiveTab = (tab: string) => {
         setSearchParams({ tab });
+    };
+
+    const [copied, setCopied] = useState(false);
+
+    const handleCopyUrl = async () => {
+        if (!deployment.url) return;
+        try {
+            await navigator.clipboard.writeText(deployment.url);
+            setCopied(true);
+            toast({
+                title: "URL copied",
+                description: "Deployment URL has been copied to clipboard.",
+            });
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            toast({
+                title: "Failed to copy",
+                description: "Please try again later.",
+                variant: "destructive"
+            });
+        }
     };
 
     if (error) return (
@@ -125,9 +179,23 @@ export default function DeploymentDetails() {
                                     </h1>
                                     <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                                         {deployment.url ? (
-                                            <a href={deployment.url} target="_blank" rel="noreferrer" className="hover:text-primary hover:underline flex items-center gap-1">
-                                                {deployment.url.replace('https://', '')} <ExternalLink className="w-3 h-3" />
-                                            </a>
+                                            <div className="flex items-center gap-2 group/url">
+                                                <a href={deployment.url} target="_blank" rel="noreferrer" className="hover:text-primary hover:underline flex items-center gap-1">
+                                                    {deployment.url.replace('https://', '')} <ExternalLink className="w-3 h-3" />
+                                                </a>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-6 w-6 opacity-0 group-hover/url:opacity-100 transition-opacity"
+                                                    onClick={handleCopyUrl}
+                                                >
+                                                    {copied ? (
+                                                        <Check className="h-3 w-3 text-green-500" />
+                                                    ) : (
+                                                        <Copy className="h-3 w-3 text-muted-foreground" />
+                                                    )}
+                                                </Button>
+                                            </div>
                                         ) : (
                                             <span>No URL generated</span>
                                         )}
@@ -313,6 +381,7 @@ export default function DeploymentDetails() {
                                         <TerminalView
                                             logs={deployment.build_logs || []}
                                             className="flex-1"
+                                            centerOnLoad={true}
                                         />
                                     </div>
 
