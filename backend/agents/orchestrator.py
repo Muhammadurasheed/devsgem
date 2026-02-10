@@ -103,9 +103,9 @@ class OrchestratorAgent:
                 )
                  print("[Orchestrator] Using Gemini 3 Pro Preview via API")
             except:
-                 print("[Orchestrator] Gemini 3 Preview unavail via API, falling back to Flash")
-                 self.model = genai.GenerativeModel(
-                    'gemini-2.0-flash-001',
+                  print("[Orchestrator] Gemini 3 Pro Preview unavail via API, falling back to Gemini 3 Flash")
+                  self.model = genai.GenerativeModel(
+                    'gemini-3-flash-preview',  # Gemini 3 Hackathon
                     tools=[self._get_function_declarations_genai()],
                     system_instruction=system_instruction
                 )
@@ -491,7 +491,7 @@ class OrchestratorAgent:
                     
                     # Recreate model for this region
                     self.model = GenerativeModel(
-                        'gemini-2.0-flash-001',
+                        'gemini-3-flash-preview',  # Gemini 3 Hackathon
                         tools=[self._get_function_declarations()],
                         system_instruction=self._get_system_instruction()
                     )
@@ -545,7 +545,7 @@ class OrchestratorAgent:
                 genai.configure(api_key=self.gemini_api_key)
                 
                 backup_model = genai.GenerativeModel(
-                    model_name='gemini-2.0-flash-001',
+                    model_name='gemini-3-flash-preview',  # Gemini 3 Hackathon
                     tools=[self._get_function_declarations_genai()]
                 )
                 

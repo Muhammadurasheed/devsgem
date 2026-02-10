@@ -116,8 +116,8 @@ class GeminiBrainAgent:
             try:
                 self.fallback_model = genai.GenerativeModel('gemini-3-pro-preview')
             except:
-                print("[GeminiBrain] Gemini 3 Preview not available via API key, falling back to Flash")
-                self.fallback_model = genai.GenerativeModel('gemini-2.0-flash-001')
+                print("[GeminiBrain] Gemini 3 Pro Preview unavail, falling back to Gemini 3 Flash")
+                self.fallback_model = genai.GenerativeModel('gemini-3-flash-preview')  # Gemini 3 Hackathon
         else:
             self.fallback_model = None
         
@@ -181,8 +181,8 @@ class GeminiBrainAgent:
             
             # 2. Secondary: Vertex AI Flash (The Speedster) - Higher QPS
             try:
-                print("[GeminiBrain] 🔄 Falling back to Secondary: Gemini 2.0 Flash (Vertex)...")
-                flash_model = GenerativeModel('gemini-2.0-flash-001')
+                print("[GeminiBrain] 🔄 Falling back to Secondary: Gemini 3 Flash Preview (Vertex)...")
+                flash_model = GenerativeModel('gemini-3-flash-preview')  # Gemini 3 Hackathon
                 response = await self._call_with_retry(flash_model.generate_content_async, diagnosis_prompt)
                 diagnosis_text = response.text
             except Exception as e_secondary:

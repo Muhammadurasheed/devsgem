@@ -17,7 +17,7 @@ class DockerExpertAgent:
     
     def __init__(self, gcloud_project: str, location: str = 'us-central1'):
         vertexai.init(project=gcloud_project, location=location)
-        self.model = GenerativeModel('gemini-2.0-flash-001')
+        self.model = GenerativeModel('gemini-3-flash-preview')  # Gemini 3 Hackathon
         self.templates = self._load_templates()
     
     def _load_templates(self) -> Dict[str, str]:

@@ -35,12 +35,12 @@ class CodeAnalyzerAgent:
         
         if self.use_vertex_ai:
             vertexai.init(project=gcloud_project, location=location)
-            self.model = GenerativeModel('gemini-2.0-flash-001')
+            self.model = GenerativeModel('gemini-3-flash-preview')  # Gemini 3 Hackathon
         else:
             # Using Gemini API directly
             import google.generativeai as genai
             genai.configure(api_key=gemini_api_key)
-            self.model = genai.GenerativeModel('gemini-2.0-flash-001')
+            self.model = genai.GenerativeModel('gemini-3-flash-preview')  # Gemini 3 Hackathon
     
     async def analyze_project(
         self, 
@@ -208,7 +208,7 @@ class CodeAnalyzerAgent:
                 try:
                     import google.generativeai as genai
                     genai.configure(api_key=self.gemini_api_key)
-                    fallback_model = genai.GenerativeModel('gemini-2.0-flash-001')
+                    fallback_model = genai.GenerativeModel('gemini-3-flash-preview')  # Gemini 3 Hackathon
                     response = fallback_model.generate_content(analysis_prompt)
                     # [Truncated logic for brevity - actually we should probably just call fallback_analysis for safety]
                     return self._fallback_analysis(project_path, file_structure, heuristic_report)
