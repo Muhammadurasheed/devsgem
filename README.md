@@ -1,239 +1,183 @@
-<![CDATA[<div align="center">
+# DevGem
 
-# 💎 DevGem
+**The Sovereign Agentic Cloud Engine**
 
-### The Sovereign Agentic Cloud Engine
-
-**Deploy any GitHub repository to Google Cloud Run through natural language.**
-
-[![Built with Gemini 3](https://img.shields.io/badge/Built%20with-Gemini%203-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://deepmind.google/technologies/gemini/)
-[![Cloud Run](https://img.shields.io/badge/Cloud%20Run-Serverless-34A853?style=for-the-badge&logo=googlecloud&logoColor=white)](https://cloud.google.com/run)
-[![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+Deploy any GitHub repository to Google Cloud Run through natural language.
+No Dockerfiles. No CLI. No config files. Just conversation.
 
 ---
 
-*Paste a GitHub URL. Say "Deploy." Get a live Cloud Run URL in minutes.*
+## What is DevGem?
 
-*No Dockerfiles. No CLI. No config files. Just conversation.*
+DevGem is an AI-powered deployment platform that transforms Cloud Run deployment from a multi-step DevOps process into a single natural language conversation.
 
-</div>
+Paste a GitHub URL. Say **"Deploy."** Get a live Cloud Run URL in minutes.
 
----
-
-## 🚀 What is DevGem?
-
-DevGem is a **fully autonomous, AI-powered deployment platform** that transforms the Cloud Run deployment experience from a multi-step manual DevOps process into a single natural language conversation.
-
-Five specialized **Gemini 3 AI agents** collaborate in real-time to:
-
-1. **Clone** your repository from GitHub
-2. **Analyze** your codebase across 25+ framework signatures
-3. **Generate** production-optimized Dockerfiles with native library resolution
-4. **Build** container images in the cloud using Kaniko (no Docker daemon required)
-5. **Deploy** to Google Cloud Run with auto-scaling, HTTPS, and IAM policy automation
-6. **Stream** real-time build logs, AI reasoning, and deployment progress via WebSocket
+Five specialized **Gemini 3** AI agents collaborate in real-time to clone your repository, analyze your framework, generate an optimized Dockerfile, build a container image in the cloud using Kaniko, and deploy to Google Cloud Run with auto-scaling, HTTPS, and IAM policy automation.
 
 **Zero gcloud CLI dependency** — everything uses Google Cloud Python client libraries.
 
 ---
 
-## 🏗️ Architecture
+## Gemini 3 Integration
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Frontend (React + TypeScript)          │
-│  ┌──────────┐  ┌───────────┐  ┌────────────────────┐    │
-│  │   Chat   │  │ Dashboard │  │ Environment Manager│    │
-│  │ Interface │  │  + Logs   │  │   + Secret Sync    │    │
-│  └────┬─────┘  └─────┬─────┘  └────────┬───────────┘    │
-│       └───────────────┼────────────────┘                 │
-│                       │ WebSocket                        │
-└───────────────────────┼──────────────────────────────────┘
-                        │
-┌───────────────────────┼──────────────────────────────────┐
-│                  Backend (FastAPI + Python)               │
-│                       │                                  │
-│  ┌────────────────────▼─────────────────────────────┐    │
-│  │            OrchestratorAgent (Gemini 3 Pro)       │    │
-│  │         Function Calling · Context Management     │    │
-│  └──┬──────────┬──────────┬──────────┬──────────┘    │
-│     │          │          │          │                │
-│  ┌──▼──┐  ┌───▼───┐  ┌──▼───┐  ┌──▼──────────┐     │
-│  │Code │  │Docker │  │Gemini│  │ Monitoring  │     │
-│  │Analy│  │Expert │  │Brain │  │   Agent     │     │
-│  │zer  │  │Agent  │  │Agent │  │             │     │
-│  └──┬──┘  └───┬───┘  └──┬───┘  └─────────────┘     │
-│     │         │         │                            │
-│  ┌──▼─────────▼─────────▼────────────────────────┐   │
-│  │              Google Cloud Services             │   │
-│  │  Cloud Build · Cloud Run · Artifact Registry   │   │
-│  │  Secret Manager · Cloud Storage · Cloud Logging│   │
-│  └────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────┘
+| Agent | Model | Role |
+|:------|:------|:-----|
+| OrchestratorAgent | `gemini-3-pro-preview` | Function calling, deployment orchestration |
+| GeminiBrainAgent | `gemini-3-pro-preview` | Error diagnosis, root cause analysis |
+| CodeAnalyzerAgent | `gemini-3-flash-preview` | Framework detection, port sensing |
+| DockerExpertAgent | `gemini-3-flash-preview` | Native library resolution, Dockerfile generation |
+| MonitoringAgent | `gemini-3-flash-preview` | Runtime health analysis |
+
+Multi-region failover: `us-central1` → `us-east1` → `europe-west1` → `asia-northeast1` → direct Gemini API.
+
+---
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph Frontend
+        A[Chat Interface] --> D[WebSocket]
+        B[Dashboard + Logs] --> D
+        C[Environment Manager] --> D
+    end
+
+    D --> E
+
+    subgraph Backend
+        E[OrchestratorAgent<br>Gemini 3 Pro] --> F[CodeAnalyzerAgent]
+        E --> G[DockerExpertAgent]
+        E --> H[GeminiBrainAgent]
+        E --> I[MonitoringAgent]
+    end
+
+    F --> J
+    G --> J
+    H --> J
+
+    subgraph Google Cloud
+        J[Cloud Build + Kaniko]
+        K[Cloud Run]
+        L[Artifact Registry]
+        M[Secret Manager]
+        N[Cloud Storage]
+        O[Cloud Logging]
+    end
+
+    J --> L
+    L --> K
+    M --> K
+    N --> J
+    O --> B
 ```
 
 ---
 
-## 🤖 Gemini 3 Integration
+## The 7-Stage Pipeline
 
-DevGem uses **Gemini 3** as its core intelligence layer across every agent:
+| Stage | What Happens |
+|:------|:-------------|
+| **1. Repository Access** | Authenticated `git clone --depth 1` + parallel GCP preflight checks |
+| **2. Code Analysis** | Heuristic engine (25+ framework signatures) + Gemini validation |
+| **3. Dockerfile Generation** | Template matching from 15+ templates + native library resolution |
+| **4. Environment Config** | `.env` parsing + Google Secret Manager two-way sync |
+| **5. Security Scan** | Dockerfile validation + env var sanitization |
+| **6. Container Build** | Cloud Build + Kaniko — no Docker daemon, no CLI |
+| **7. Cloud Run Deploy** | Cloud Run v2 API + IAM automation + URL verification |
 
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| **OrchestratorAgent** | `gemini-3-pro-preview` | Function calling, deployment orchestration, natural language routing |
-| **GeminiBrainAgent** | `gemini-3-pro-preview` | Error diagnosis, root cause analysis, code fix generation |
-| **CodeAnalyzerAgent** | `gemini-3-flash-preview` | Framework validation, port detection, deployment readiness scoring |
-| **DockerExpertAgent** | `gemini-3-flash-preview` | Native library resolution (`opencv` → `libgl1`), custom Dockerfile generation |
-| **MonitoringAgent** | `gemini-3-flash-preview` | Runtime health analysis, performance recommendations |
-
-**Multi-region failover**: `us-central1` → `us-east1` → `europe-west1` → `asia-northeast1` → direct Gemini API.
+Each stage streams real-time progress, logs, and AI reasoning via WebSocket.
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 ### Prerequisites
 
-- **Node.js 18+** (frontend)
-- **Python 3.11+** (backend)
-- **Google Cloud Project** with billing enabled
-- **GitHub Account** (for OAuth integration)
+- Node.js 18+ (frontend)
+- Python 3.11+ (backend)
+- Google Cloud Project with billing enabled
+- GitHub Account
 
 ### Frontend
 
 ```bash
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
 ```
 
-Open `http://localhost:5173`
+Runs at `http://localhost:5173`
 
 ### Backend
 
 ```bash
 cd backend
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Configure environment (create .env file)
-cp .env.example .env
-# Edit .env with your credentials
-
-# Start server
 python app.py
 ```
 
-Server runs at `http://localhost:8000`
+Runs at `http://localhost:8000`
 
 ### Environment Variables
 
 Create `backend/.env`:
 
-```bash
-# Google Cloud
+```env
 GOOGLE_CLOUD_PROJECT=your-gcp-project-id
 GOOGLE_CLOUD_REGION=us-central1
 GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account.json
-
-# Gemini AI
 GEMINI_API_KEY=your-gemini-api-key
-
-# GitHub OAuth
 GITHUB_CLIENT_ID=your-github-client-id
 GITHUB_CLIENT_SECRET=your-github-client-secret
-GITHUB_TOKEN=your-github-token
-
-# Frontend
-VITE_BACKEND_URL=http://localhost:8000
+GITHUB_TOKEN=your-github-pat
 ```
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 devsgem/
-├── src/                          # Frontend (React + TypeScript)
-│   ├── components/               # 97 UI components
-│   │   ├── ChatWindow.tsx        # AI chat interface
-│   │   ├── Dashboard.tsx         # Deployment management
-│   │   ├── DeploymentStages.tsx  # 7-stage progress visualization
-│   │   ├── EnvManager.tsx        # Environment variable editor
-│   │   └── ...
-│   ├── contexts/                 # React contexts (WebSocket, Theme)
-│   ├── hooks/                    # Custom React hooks
-│   ├── lib/                      # Utilities, WebSocket client
-│   ├── pages/                    # 12 page components
-│   └── types/                    # TypeScript type definitions
+├── src/                        # Frontend — React + TypeScript
+│   ├── components/             # 97 UI components
+│   ├── contexts/               # WebSocket, Theme contexts
+│   ├── hooks/                  # 7 custom hooks
+│   ├── lib/                    # WebSocket client, API, utilities
+│   ├── pages/                  # 12 page components
+│   └── types/                  # TypeScript definitions
 │
-├── backend/                      # Backend (FastAPI + Python)
-│   ├── agents/                   # 7 AI agent modules
-│   │   ├── orchestrator.py       # Central agent coordinator (4,765 lines)
-│   │   ├── code_analyzer.py      # Framework & dependency detection
-│   │   ├── docker_expert.py      # Dockerfile generation engine
-│   │   ├── gemini_brain.py       # Error diagnosis & code fixing
-│   │   ├── gemini_tools.py       # Function declarations for Gemini
-│   │   ├── monitoring_agent.py   # Runtime health monitoring
-│   │   └── gemini_fix_handler.py # Code fix application
-│   ├── services/                 # 24 cloud & platform services
-│   │   ├── gcloud_service.py     # Cloud Run/Build/IAM integration
-│   │   ├── deployment_service.py # Deployment lifecycle manager
-│   │   ├── secret_sync_service.py# Secret Manager sync engine
-│   │   ├── github_service.py     # GitHub API integration
-│   │   └── ...
-│   ├── app.py                    # FastAPI entry point (2,992 lines)
-│   └── requirements.txt          # Python dependencies
+├── backend/                    # Backend — FastAPI + Python
+│   ├── agents/                 # 7 AI agents
+│   ├── services/               # 24 cloud services
+│   ├── app.py                  # Entry point
+│   └── requirements.txt        # Dependencies
 │
-├── package.json                  # Frontend dependencies
-└── vite.config.ts                # Vite configuration
+├── package.json
+└── vite.config.ts
 ```
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
-### Frontend
-React 18 · TypeScript · Vite 5 · Tailwind CSS · Shadcn/ui · Framer Motion · WebSocket
+**Frontend** — React 18 · TypeScript · Vite 5 · Tailwind CSS · Shadcn/ui · Framer Motion
 
-### Backend
-Python 3.11 · FastAPI · Vertex AI SDK · google-cloud-build · google-cloud-run · google-cloud-storage · google-cloud-secret-manager · SQLite + aiosqlite
+**Backend** — Python 3.11 · FastAPI · Vertex AI SDK · google-cloud-build · google-cloud-run · google-cloud-storage · google-cloud-secret-manager
 
-### Cloud Infrastructure
-Cloud Run · Cloud Build + Kaniko · Artifact Registry · Secret Manager · Cloud Storage · Cloud Logging
+**Infrastructure** — Cloud Run · Cloud Build + Kaniko · Artifact Registry · Secret Manager · Cloud Storage · Cloud Logging
 
 ---
 
-## 📊 Metrics
+## By the Numbers
 
-| Metric | Value |
-|--------|-------|
-| Backend Code | 15,000+ lines |
-| Frontend Code | 12,000+ lines |
-| AI Agent Modules | 7 |
-| Cloud Services | 24 |
-| UI Components | 97 |
-| Dockerfile Templates | 15+ |
-| Framework Signatures | 25+ |
+| | |
+|:--|:--|
+| Backend | 15,000+ lines across 7 agents and 24 services |
+| Frontend | 12,000+ lines across 97 components and 12 pages |
+| Dockerfile Templates | 15+ (Python, Node, Go, PHP, Ruby, Java) |
+| Framework Signatures | 25+ (FastAPI, Flask, Express, NestJS, Next.js, Vite, Gin, Laravel, Spring Boot, Rails…) |
 | Deployment Time | 3–5 minutes |
 
 ---
 
-## 📄 License
-
-This project was built for the **Gemini 3 Global Hackathon** by Google DeepMind.
-
----
-
-<div align="center">
-
-**Built with 💎 by the DevGem Team**
-
-*Where Google-Scale Engineering Meets Apple-Grade Design*
-
-</div>
-]]>
+*Built with Gemini 3 for the Gemini 3 Global Hackathon — February 2026*
